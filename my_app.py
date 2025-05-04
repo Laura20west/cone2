@@ -198,7 +198,7 @@ async def verify_operator(request: Request):
         raise HTTPException(status_code=403, detail="Unauthorized operator")
     return operator_email
 
-@app.post("/1A9I6F1O5R1C8O3N1E5145ID", response_model=SallyResponse)
+@app.post("/1A9I6F1O5R1C8O3N1E5145IA", response_model=SallyResponse)
 async def analyze_message(
     request: Request,
     user_input: UserMessage,

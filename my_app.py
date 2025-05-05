@@ -253,9 +253,21 @@ for category, data in REPLY_POOLS.items():
     REPLY_POOLS[category]["triggers"] = list(enhanced_triggers)
     print(f"Generated {len(enhanced_triggers)} trigger variations for category '{category}'")
 
+# Define category priority for matching (non-general first)
+CATEGORY_PRIORITY = [
+    "explicit",
+    "pricing",
+    "pictures",
+    "location",
+    "verification",
+    "services",
+    "general"
+]
+
 # Initialize response queues
 CATEGORY_QUEUES = {}
-for category, data in REPLY_POOLS.items():
+for category in CATEGORY_PRIORITY:
+    data = REPLY_POOLS[category]
     responses = data["responses"]
     questions = data["questions"]
     if responses and questions:
@@ -360,23 +372,29 @@ def match_message_to_category(message: str):
     best_match = ("general", None, 0.0)
     
     # First, check for exact trigger matches (highest priority)
-    for category, data in REPLY_POOLS.items():
+    # Process categories in priority order (non-general first)
+    for category in CATEGORY_PRIORITY:
+        data = REPLY_POOLS[category]
         for trigger in data["triggers"]:
-            # Exact match
-            if trigger.lower() in message:
+            # Use regex with word boundaries for exact match
+            pattern = re.compile(rf'\b{re.escape(trigger.lower())}\b', re.IGNORECASE)
+            if pattern.search(message):
                 return (category, trigger, 1.0)
             
             # Handle wildcard patterns
             if '*' in trigger:
-                pattern = re.compile(trigger.replace('*', '.*'), re.IGNORECASE)
-                if pattern.search(message):
+                # Replace wildcards with regex pattern
+                regex_pattern = trigger.lower().replace('*', r'\w*')
+                wildcard_pattern = re.compile(rf'\b{regex_pattern}\b', re.IGNORECASE)
+                if wildcard_pattern.search(message):
                     return (category, trigger, 0.9)
     
     # If no exact match, use semantic similarity
     try:
         message_doc = nlp(message)
         
-        for category, data in REPLY_POOLS.items():
+        for category in CATEGORY_PRIORITY:
+            data = REPLY_POOLS[category]
             for trigger in data["triggers"]:
                 trigger_doc = nlp(trigger)
                 try:
@@ -452,7 +470,8 @@ def augment_dataset():
         # Reinitialize queues
         global CATEGORY_QUEUES
         CATEGORY_QUEUES = {}
-        for category, data in REPLY_POOLS.items():
+        for category in CATEGORY_PRIORITY:
+            data = REPLY_POOLS[category]
             responses = data["responses"]
             questions = data["questions"]
             if responses and questions:
@@ -479,7 +498,7 @@ async def verify_operator(request: Request):
     
     return operator_email
 
-@app.post("/1A9I6F1O5R1C8O3N1E5145ID", response_model=SallyResponse)
+@app.post("/per", response_model=SallyResponse)
 async def analyze_message(
     request: Request,
     user_input: UserMessage,
@@ -498,7 +517,7 @@ async def analyze_message(
             )
         
         # Match message to category
-        matched_category, matched_trigger, confidence = match_message_to_category(message)
+        matched_category, matched_trigger, confidence = match_message_to_category(message.lower())
         
         # Format as response object
         response_data = {

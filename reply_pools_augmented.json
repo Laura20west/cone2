@@ -1,7 +1,5 @@
 {
-  "general": {
-        "triggers": [],
-        "responses": [
+          "responses": [
                 "No rules, no pressure, just two people enjoying each other. If you can handle that, I might just let you in on my little world.",
                 "No promises, no ties, just fun when we feel like it. If you're up for some carefree chemistry, let's see where this goes.",
                 "I'm not here for forever, just for now. Let's keep it simple, light, and maybe a little wicked. You in?",
@@ -1365,5 +1363,4 @@
 
 
             ]
-    }
 }

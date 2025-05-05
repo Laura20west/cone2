@@ -13,7 +13,8 @@ import nltk
 from nltk.corpus import wordnet as wn
 from typing import Dict, List, Optional
 from textblob import TextBlob
-import httpx
+import re
+from itertools import product
 
 # Initialize NLP
 nlp = spacy.load("en_core_web_md")
@@ -25,57 +26,80 @@ app = FastAPI()
 DATASET_PATH = Path("conversation_dataset.jsonl.gz")
 UNCERTAIN_PATH = Path("uncertain_responses.jsonl.gz")
 REPLY_POOLS_PATH = Path("reply_pools_augmented.json.gz")
+USED_PAIRS_PATH = Path("used_pairs.json.gz")
 GZIP_COMPRESSION_LEVEL = 3
 
-# Sentiment configuration
-SENTIMENT_CATEGORIES = {
-    "positive": {"threshold": 0.3, "responses": [], "questions": []},
-    "neutral": {"threshold": (-0.3, 0.3), "responses": [], "questions": []},
-    "negative": {"threshold": -0.3, "responses": [], "questions": []}
-}
-
-def load_gzip_json(path):
+def load_gzip_json(path: Path):
     """Load compressed JSON file with error handling"""
     try:
         if path.exists():
             with gzip.open(path, "rt") as f:
                 return json.load(f)
-    except (gzip.BadGzipFile, json.JSONDecodeError) as e:
-        print(f"Error loading {path}: {e}")
-    return None
+        return None
+    except Exception as e:
+        print(f"Error loading {path}: {str(e)}")
+        return None
 
-def save_gzip_json(data, path):
+def save_gzip_json(data, path: Path):
     """Save data to compressed JSON file with atomic write"""
     temp_path = path.with_suffix(".tmp.gz")
     try:
         with gzip.open(temp_path, "wt", compresslevel=GZIP_COMPRESSION_LEVEL) as f:
             json.dump(data, f)
         temp_path.replace(path)
+    except Exception as e:
+        print(f"Error saving {path}: {str(e)}")
     finally:
         temp_path.unlink(missing_ok=True)
 
-# Load or initialize sentiment-based reply pools
+# Load or initialize reply pools
 REPLY_POOLS = load_gzip_json(REPLY_POOLS_PATH) or {
+    "general": {
+        "triggers": [],
+        "responses": ["Honey, let's talk about something more exciting..."],
+        "questions": ["What really gets you going?"]
+    },
     "positive": {
-        "responses": ["You seem happy! Tell me more about what's exciting you..."],
-        "questions": ["What's making you feel so positive right now?"]
-    },
-    "neutral": {
-        "responses": ["Let's explore this further..."],
-        "questions": ["How would you like to continue?"]
-    },
-    "negative": {
-        "responses": ["I sense some hesitation...", "Let's work through this together..."],
-        "questions": ["What's been troubling you?", "How can I help improve this situation?"]
+        "triggers": [],
+        "responses": [
+            "hi babe".
+        ],
+        "questions": [
+            "hi?" 
+        ]
     }
 }
 
+# Initialize response queues and usage tracking
+CATEGORY_QUEUES = {}
+USED_PAIRS = defaultdict(set)
+
+def initialize_queues():
+    global CATEGORY_QUEUES
+    CATEGORY_QUEUES = {}
+    for category, data in REPLY_POOLS.items():
+        responses = data.get("responses", [])
+        questions = data.get("questions", [])
+        if responses and questions:
+            combinations = list(product(range(len(responses)), range(len(questions))))
+            random.shuffle(combinations)
+            filtered = [(r, q) for r, q in combinations if (r, q) not in USED_PAIRS[category]]
+            CATEGORY_QUEUES[category] = deque(filtered)
+        else:
+            CATEGORY_QUEUES[category] = deque()
+
+# Load used pairs
+if loaded_pairs := load_gzip_json(USED_PAIRS_PATH):
+    USED_PAIRS.update(loaded_pairs)
+initialize_queues()
+
 # Security configuration
-AUTHORIZED_OPERATORS = {"cone478", "cone353", "cone229", "cone516", 
-                       "cone481", "cone335", "cone424", "cone069", "cone096", 
-                       "cone075","cone136", "cone406", "cone047", "cone461", 
-                       "cone423", "cone290", "cone407", "cone468",
-                       "cone221", "cone412", "cone413", "admin@company.com"}
+AUTHORIZED_OPERATORS = {
+    "cone478", "cone353", "cone229", "cone516", "cone481", "cone335",
+    "cone424", "cone069", "cone096", "cone075", "cone136", "cone406",
+    "cone047", "cone461", "cone423", "cone290", "cone407", "cone468",
+    "cone221", "cone412", "cone413", "admin@company.com"
+}
 
 app.add_middleware(
     CORSMiddleware,
@@ -89,46 +113,74 @@ class UserMessage(BaseModel):
     message: str
 
 class SallyResponse(BaseModel):
-    sentiment_category: str
-    sentiment_score: float
+    matched_words: List[str]
+    matched_category: str
     confidence: float
+    sentiment: float
     replies: List[str]
 
 def log_to_dataset(user_input: str, response_data: dict, operator: str):
-    entry = {
-        "id": str(uuid.uuid4()),
-        "timestamp": datetime.utcnow().isoformat(),
-        "user_input": user_input,
-        "sentiment_category": response_data["sentiment_category"],
-        "sentiment_score": response_data["sentiment_score"],
-        "operator": operator,
-        "replies": response_data["replies"],
-        "embedding": nlp(user_input).vector.tolist()
-    }
-    
-    with gzip.open(DATASET_PATH, "at", compresslevel=GZIP_COMPRESSION_LEVEL) as f:
-        f.write(json.dumps(entry) + "\n")
+    try:
+        entry = {
+            "id": str(uuid.uuid4()),
+            "timestamp": datetime.utcnow().isoformat(),
+            "user_input": user_input,
+            "matched_category": response_data["matched_category"],
+            "response": response_data["replies"][0] if response_data["replies"] else None,
+            "question": response_data["replies"][1] if len(response_data["replies"]) > 1 else None,
+            "operator": operator,
+            "confidence": response_data["confidence"],
+            "sentiment": response_data["sentiment"],
+            "embedding": nlp(user_input).vector.tolist()
+        }
+        with gzip.open(DATASET_PATH, "at", compresslevel=GZIP_COMPRESSION_LEVEL) as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        print(f"Error logging to dataset: {str(e)}")
 
-def determine_sentiment_category(score: float) -> str:
-    if score >= 0.3:
-        return "positive"
-    elif score <= -0.3:
-        return "negative"
-    return "neutral"
+def store_uncertain(user_input: str):
+    try:
+        entry = {
+            "id": str(uuid.uuid4()),
+            "timestamp": datetime.utcnow().isoformat(),
+            "user_input": user_input,
+            "reviewed": False
+        }
+        with gzip.open(UNCERTAIN_PATH, "at", compresslevel=GZIP_COMPRESSION_LEVEL) as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        print(f"Error storing uncertain response: {str(e)}")
 
-def get_response_pair(category: str) -> List[str]:
-    responses = REPLY_POOLS.get(category, {}).get("responses", [])
-    questions = REPLY_POOLS.get(category, {}).get("questions", [])
-    
-    if not responses or not questions:
-        return [
-            "Let's explore this further...",
-            "How would you like to continue?"
-        ]
-    
-    response = random.choice(responses)
-    question = random.choice(questions)
-    return [response, question]
+def augment_dataset():
+    try:
+        if not DATASET_PATH.exists():
+            return
+
+        with gzip.open(DATASET_PATH, "rt") as f:
+            entries = [json.loads(line) for line in f]
+
+        # Auto-discover new categories
+        category_vocabs = defaultdict(set)
+        for entry in entries:
+            doc = nlp(entry["user_input"])
+            category = entry["matched_category"]
+            category_vocabs[category].update([token.text.lower() for token in doc if token.is_alpha])
+
+        # Create new categories with default responses
+        for category, words in category_vocabs.items():
+            if category not in REPLY_POOLS:
+                REPLY_POOLS[category] = {
+                    "triggers": list(words),
+                    "responses": ["Honey, let's take this somewhere more private..."],
+                    "questions": ["What's your deepest, darkest fantasy?"]
+                }
+
+        save_gzip_json(REPLY_POOLS, REPLY_POOLS_PATH)
+        initialize_queues()
+        
+    except Exception as e:
+        print(f"Augmentation error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Augmentation failed")
 
 async def verify_operator(request: Request):
     operator_email = request.headers.get("X-Operator-Email")
@@ -142,115 +194,134 @@ async def analyze_message(
     user_input: UserMessage,
     operator: str = Depends(verify_operator)
 ):
-    message = user_input.message.strip()
-    
-    # Perform sentiment analysis
-    blob = TextBlob(message)
-    sentiment_score = blob.sentiment.polarity
-    sentiment_category = determine_sentiment_category(sentiment_score)
-    
-    # Get appropriate response pair
-    response_pair = get_response_pair(sentiment_category)
-    
-    # Calculate confidence based on sentiment strength
-    confidence = min(abs(sentiment_score) * 2, 1.0)  # Convert to 0-1 range
-    
-    response_data = {
-        "sentiment_category": sentiment_category,
-        "sentiment_score": round(sentiment_score, 2),
-        "confidence": round(confidence, 2),
-        "replies": response_pair
-    }
-    
-    # Log interaction
-    log_to_dataset(message, response_data, operator)
-    
-    # Handle low confidence cases
-    if confidence < 0.5:
-        fallback_pair = [
-            "I want to make sure I understand correctly...",
-            "Could you rephrase that in different words?"
-        ]
-        response_data["replies"] = fallback_pair
-    
-    return response_data
+    try:
+        message = user_input.message.strip().lower()
+        doc = nlp(message)
+        blob = TextBlob(message)
+        sentiment = blob.sentiment.polarity
+
+        # Find matching triggers
+        matched_triggers = []
+        best_category = "general"
+        max_similarity = 0.0
+
+        for category, data in REPLY_POOLS.items():
+            for trigger in data["triggers"]:
+                try:
+                    if '*' in trigger:
+                        pattern = re.compile(trigger.replace('*', '.*'), re.IGNORECASE)
+                        if pattern.fullmatch(message):
+                            similarity = 1.0
+                            matched_triggers.append(trigger)
+                    else:
+                        trigger_doc = nlp(trigger)
+                        similarity = doc.similarity(trigger_doc)
+                        if similarity > 0.7:
+                            matched_triggers.append(trigger)
+
+                    # Update best category
+                    category_doc = nlp(" ".join(data["triggers"]))
+                    category_similarity = doc.similarity(category_doc) * (1 + abs(sentiment))
+                    if category_similarity > max_similarity:
+                        max_similarity = category_similarity
+                        best_category = category
+
+                except Exception as e:
+                    print(f"Error processing trigger '{trigger}': {str(e)}")
+                    continue
+
+        # Prepare response
+        response_data = {
+            "matched_words": matched_triggers,
+            "matched_category": best_category,
+            "confidence": round(max_similarity, 2),
+            "sentiment": sentiment,
+            "replies": []
+        }
+
+        # Get response pair
+        category_data = REPLY_POOLS.get(best_category, REPLY_POOLS["general"])
+        queue = CATEGORY_QUEUES.get(best_category, deque())
+
+        if queue:
+            try:
+                r_idx, q_idx = queue.popleft()
+                response_data["replies"] = [
+                    category_data["responses"][r_idx],
+                    category_data["questions"][q_idx]
+                ]
+                USED_PAIRS[best_category].add((r_idx, q_idx))
+                save_gzip_json(dict(USED_PAIRS), USED_PAIRS_PATH)
+            except (IndexError, KeyError) as e:
+                print(f"Error getting response pair: {str(e)}")
+                response_data["replies"] = [
+                    "Honey, let's take this somewhere more private...",
+                    "What's your deepest, darkest fantasy?"
+                ]
+
+        # Fallback
+        if not response_data["replies"]:
+            response_data["replies"] = [
+                "Honey, let's take this somewhere more private...",
+                "What's your deepest, darkest fantasy?"
+            ]
+
+        # Active learning
+        if response_data["confidence"] < 0.6:
+            store_uncertain(message)
+            if len(response_data["replies"]) > 1:
+                response_data["replies"][1] += " Could you rephrase that, baby?"
+
+        log_to_dataset(message, response_data, operator)
+        return response_data
+
+    except Exception as e:
+        print(f"Error in analyze_message: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/dataset/analytics")
 async def get_analytics():
     analytics = {
         "total_entries": 0,
-        "sentiment_distribution": {},
-        "average_scores": {},
-        "common_responses": {}
+        "common_categories": {},
+        "confidence_stats": {},
+        "sentiment_stats": {}
     }
-    
-    if DATASET_PATH.exists():
-        try:
+
+    try:
+        if DATASET_PATH.exists():
             with gzip.open(DATASET_PATH, "rt") as f:
                 entries = [json.loads(line) for line in f]
-            
+
             analytics["total_entries"] = len(entries)
-            
-            # Sentiment distribution
-            categories = [e["sentiment_category"] for e in entries]
-            analytics["sentiment_distribution"] = Counter(categories)
-            
-            # Average scores
-            sentiment_scores = {
-                "positive": [],
-                "neutral": [],
-                "negative": []
-            }
-            for entry in entries:
-                cat = entry["sentiment_category"]
-                sentiment_scores[cat].append(entry["sentiment_score"])
-            
-            analytics["average_scores"] = {
-                cat: round(sum(scores)/len(scores), 2) if scores else 0
-                for cat, scores in sentiment_scores.items()
-            }
-            
-            # Common responses
-            all_responses = [tuple(e["replies"]) for e in entries]
-            analytics["common_responses"] = Counter(all_responses).most_common(5)
-        
-        except Exception as e:
-            print(f"Analytics generation failed: {e}")
-    
+            analytics["common_categories"] = Counter(entry["matched_category"] for entry in entries)
+
+            if entries:
+                confidences = [e.get("confidence", 0) for e in entries]
+                sentiments = [e.get("sentiment", 0) for e in entries]
+
+                analytics["confidence_stats"] = {
+                    "average": round(sum(confidences)/len(confidences), 2),
+                    "min": round(min(confidences), 2),
+                    "max": round(max(confidences), 2)
+                }
+
+                analytics["sentiment_stats"] = {
+                    "average": round(sum(sentiments)/len(sentiments), 2),
+                    "positive": len([s for s in sentiments if s > 0]),
+                    "negative": len([s for s in sentiments if s < 0]),
+                    "neutral": len([s for s in sentiments if s == 0])
+                }
+
+    except Exception as e:
+        print(f"Analytics error: {str(e)}")
+
     return analytics
 
 @app.post("/augment")
 async def trigger_augmentation():
-    # Analyze dataset to improve responses
-    if DATASET_PATH.exists():
-        try:
-            with gzip.open(DATASET_PATH, "rt") as f:
-                entries = [json.loads(line) for line in f]
-            
-            # Learn from successful interactions
-            for entry in entries:
-                category = entry["sentiment_category"]
-                replies = entry.get("replies", [])
-                
-                if len(replies) >= 2:
-                    response = replies[0]
-                    question = replies[1]
-                    
-                    # Add unique responses
-                    if response not in REPLY_POOLS[category]["responses"]:
-                        REPLY_POOLS[category]["responses"].append(response)
-                    
-                    # Add unique questions
-                    if question not in REPLY_POOLS[category]["questions"]:
-                        REPLY_POOLS[category]["questions"].append(question)
-            
-            save_gzip_json(REPLY_POOLS, REPLY_POOLS_PATH)
-            return {"status": "Augmentation complete", "new_responses": REPLY_POOLS}
-        
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Augmentation failed: {str(e)}")
-    
-    return {"status": "No dataset available for augmentation"}
+    augment_dataset()
+    return {"status": "Dataset augmented", "new_pools": REPLY_POOLS}
 
 if __name__ == "__main__":
     import uvicorn

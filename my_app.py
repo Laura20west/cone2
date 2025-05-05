@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import spacy
 import json
+import gzip
 from datetime import datetime
 from pathlib import Path
 import uuid
@@ -34,17 +35,17 @@ except Exception as e:
 app = FastAPI(title="Sally Assistant API", 
               description="Backend service for Sally Assistant, providing AI-powered conversation suggestions")
 
-# Configuration
+# Configuration with compressed files
 BASE_DIR = Path(__file__).parent.absolute()
-DATASET_PATH = BASE_DIR / "conversation_dataset.jsonl"
-UNCERTAIN_PATH = BASE_DIR / "uncertain_responses.jsonl"
-REPLY_POOLS_PATH = BASE_DIR / "reply_pools_augmented.json"
+DATASET_PATH = BASE_DIR / "conversation_dataset.jsonl.gz"
+UNCERTAIN_PATH = BASE_DIR / "uncertain_responses.jsonl.gz"
+REPLY_POOLS_PATH = BASE_DIR / "reply_pools_augmented.json.gz"
 
-# Ensure files exist
+# Ensure compressed files exist
 for file_path in [DATASET_PATH, UNCERTAIN_PATH]:
     file_path.parent.mkdir(parents=True, exist_ok=True)
     if not file_path.exists():
-        with open(file_path, "w") as f:
+        with gzip.open(file_path, "wt") as f:
             f.write("")
 
 class TriggerGenerator:
@@ -66,7 +67,6 @@ class TriggerGenerator:
             'send': ['snd', 's3nd', 'sehnd']
         }
         
-        # Common phrases that could be triggers
         self.common_phrases = [
             "show me", "send me", "let me see", "wanna see", "want to see",
             "how much", "you charge", "how old", "where are you", "can we",
@@ -79,14 +79,12 @@ class TriggerGenerator:
         variations = set([trigger])
         doc = nlp(trigger.lower())
         
-        # Add common misspellings
         for word in trigger.lower().split():
             if word in self.misspellings:
                 for misspelling in self.misspellings[word]:
                     new_variation = trigger.lower().replace(word, misspelling)
                     variations.add(new_variation)
         
-        # Add phrasal patterns
         for token in doc:
             if token.pos_ == "VERB":
                 variations.update([
@@ -98,20 +96,18 @@ class TriggerGenerator:
                     f"would you {token.lemma_}"
                 ])
         
-        # Add semantic variations using wordnet synonyms for better coverage
         for token in doc:
             if token.pos_ in ["NOUN", "VERB", "ADJ"]:
                 synsets = wn.synsets(token.text)
-                for synset in synsets[:3]:  # Limit to first 3 synsets for performance
-                    for lemma in synset.lemmas()[:3]:  # Limit to first 3 lemmas
+                for synset in synsets[:3]:
+                    for lemma in synset.lemmas()[:3]:
                         synonym = lemma.name().replace('_', ' ')
                         if synonym != token.text:
                             variations.add(synonym)
         
-        # Add common phrases with this trigger word
         for phrase in self.common_phrases:
             for word in trigger.lower().split():
-                if len(word) > 3:  # Only consider significant words
+                if len(word) > 3:
                     variations.add(f"{phrase} {word}")
                     variations.add(f"{word} {phrase}")
         
@@ -119,7 +115,6 @@ class TriggerGenerator:
 
 trigger_gen = TriggerGenerator()
 
-# Default reply pools with enhanced categories
 DEFAULT_REPLY_POOLS = {
     "general": {
         "triggers": ["hi", "hello", "hey", "what's up", "how are you", "good morning", "good afternoon", "good evening"],
@@ -228,10 +223,10 @@ DEFAULT_REPLY_POOLS = {
     }
 }
 
-# Load or initialize reply pools with auto-generation
+# Load or initialize compressed reply pools
 if REPLY_POOLS_PATH.exists():
     try:
-        with open(REPLY_POOLS_PATH, "r") as f:
+        with gzip.open(REPLY_POOLS_PATH, "rt") as f:
             REPLY_POOLS = json.load(f)
         print(f"Loaded reply pools from {REPLY_POOLS_PATH}")
     except Exception as e:
@@ -239,21 +234,19 @@ if REPLY_POOLS_PATH.exists():
         REPLY_POOLS = DEFAULT_REPLY_POOLS
 else:
     REPLY_POOLS = DEFAULT_REPLY_POOLS
-    # Save default pools
-    with open(REPLY_POOLS_PATH, "w") as f:
+    with gzip.open(REPLY_POOLS_PATH, "wt") as f:
         json.dump(REPLY_POOLS, f, indent=2)
     print(f"Created default reply pools at {REPLY_POOLS_PATH}")
 
-# Generate trigger variations for all categories
+# Generate trigger variations
 for category, data in REPLY_POOLS.items():
     enhanced_triggers = set(data["triggers"])
-    for trigger in list(data["triggers"]):  # Use list() to avoid modifying during iteration
+    for trigger in list(data["triggers"]):
         new_variations = trigger_gen.generate_variations(trigger)
         enhanced_triggers.update(new_variations)
     REPLY_POOLS[category]["triggers"] = list(enhanced_triggers)
     print(f"Generated {len(enhanced_triggers)} trigger variations for category '{category}'")
 
-# Initialize response queues
 CATEGORY_QUEUES = {}
 for category, data in REPLY_POOLS.items():
     responses = data["responses"]
@@ -265,28 +258,23 @@ for category, data in REPLY_POOLS.items():
     else:
         print(f"Warning: Category '{category}' is missing responses or questions")
 
-# Security config - expanded list of authorized operators
 AUTHORIZED_OPERATORS = {
     "cone478", "cone353", "cone229", "cone516", "cone481", "cone335", 
     "cone424", "cone069", "cone096", "cone075","cone136", "cone406", 
     "cone047", "cone461", "cone423", "cone290", "cone407", "cone468",
     "cone221", "cone412", "cone413", "admin@company.com", "test@example.com",
-    # Add any email domain you want to whitelist
     "operator@myoperatorservice.com"
 }
 
-# Function to check if operator is authorized by exact match or domain
 def is_authorized(operator_email):
     if not operator_email:
         return False
         
     operator_email = operator_email.lower().strip()
     
-    # Check exact match
     if operator_email in AUTHORIZED_OPERATORS:
         return True
         
-    # Check domain match for organizational emails
     for auth in AUTHORIZED_OPERATORS:
         if '@' in auth and auth.startswith('@'):
             if operator_email.endswith(auth[1:]):
@@ -324,7 +312,6 @@ def log_to_dataset(user_input: str, response_data: dict, operator: str, context:
     }
     
     try:
-        # Add embedding data if possible
         doc = nlp(user_input)
         if doc.vector.size > 0:
             entry["embedding"] = doc.vector.tolist()
@@ -332,7 +319,7 @@ def log_to_dataset(user_input: str, response_data: dict, operator: str, context:
         print(f"Error creating embedding: {e}")
     
     try:
-        with open(DATASET_PATH, "a") as f:
+        with gzip.open(DATASET_PATH, "at") as f:
             f.write(json.dumps(entry) + "\n")
         print(f"Logged message to dataset: {user_input[:30]}...")
     except Exception as e:
@@ -348,31 +335,26 @@ def store_uncertain(user_input: str, context: Optional[Dict] = None):
     }
     
     try:
-        with open(UNCERTAIN_PATH, "a") as f:
+        with gzip.open(UNCERTAIN_PATH, "at") as f:
             f.write(json.dumps(entry) + "\n")
         print(f"Stored uncertain message: {user_input[:30]}...")
     except Exception as e:
         print(f"Error storing uncertain message: {e}")
 
 def match_message_to_category(message: str):
-    """Match a message to the best category using NLP"""
     message = message.strip().lower()
     best_match = ("general", None, 0.0)
     
-    # First, check for exact trigger matches (highest priority)
     for category, data in REPLY_POOLS.items():
         for trigger in data["triggers"]:
-            # Exact match
             if trigger.lower() in message:
                 return (category, trigger, 1.0)
             
-            # Handle wildcard patterns
             if '*' in trigger:
                 pattern = re.compile(trigger.replace('*', '.*'), re.IGNORECASE)
                 if pattern.search(message):
                     return (category, trigger, 0.9)
     
-    # If no exact match, use semantic similarity
     try:
         message_doc = nlp(message)
         
@@ -382,13 +364,12 @@ def match_message_to_category(message: str):
                 try:
                     similarity = message_doc.similarity(trigger_doc)
                     
-                    # Consider word-level similarities too
                     for token in message_doc:
-                        if token.has_vector and len(token.text) > 3:  # Only consider meaningful words
+                        if token.has_vector and len(token.text) > 3:
                             for trigger_token in trigger_doc:
                                 if trigger_token.has_vector and len(trigger_token.text) > 3:
                                     token_similarity = token.similarity(trigger_token)
-                                    if token_similarity > 0.85:  # High word-level similarity
+                                    if token_similarity > 0.85:
                                         similarity = max(similarity, token_similarity * 0.9)
                     
                     if similarity > best_match[2]:
@@ -402,12 +383,11 @@ def match_message_to_category(message: str):
     return best_match
 
 def augment_dataset():
-    """Analyze conversation data to improve trigger detection"""
     if not DATASET_PATH.exists():
         return
     
     try:
-        with open(DATASET_PATH, "r") as f:
+        with gzip.open(DATASET_PATH, "rt") as f:
             entries = [json.loads(line) for line in f]
         
         if not entries:
@@ -415,41 +395,32 @@ def augment_dataset():
             
         print(f"Analyzing {len(entries)} conversation entries for augmentation")
         
-        # Auto-discover new categories and extract keywords
         category_vocabs = defaultdict(set)
         for entry in entries:
             try:
                 doc = nlp(entry["user_input"])
-                # Extract keywords based on part of speech
                 keywords = [token.text.lower() for token in doc 
                            if token.is_alpha and not token.is_stop and token.pos_ in ["NOUN", "VERB", "ADJ"]]
                 category_vocabs[entry["matched_category"]].update(keywords)
             except Exception as e:
                 print(f"Error processing entry for augmentation: {e}")
         
-        # Update existing categories with new triggers
         for category, words in category_vocabs.items():
             if category in REPLY_POOLS:
-                # Only add significant words (length > 3)
                 significant_words = [w for w in words if len(w) > 3]
-                # Take top 30 most significant words by frequency
                 top_words = list(significant_words)[:30]
                 REPLY_POOLS[category]["triggers"].extend(top_words)
-                # Deduplicate
                 REPLY_POOLS[category]["triggers"] = list(set(REPLY_POOLS[category]["triggers"]))
         
-        # Generate variations for all triggers
         for category, data in REPLY_POOLS.items():
             enhanced_triggers = set(data["triggers"])
             for trigger in list(data["triggers"]):
                 enhanced_triggers.update(trigger_gen.generate_variations(trigger))
             REPLY_POOLS[category]["triggers"] = list(enhanced_triggers)
         
-        # Save augmented pools
-        with open(REPLY_POOLS_PATH, "w") as f:
+        with gzip.open(REPLY_POOLS_PATH, "wt") as f:
             json.dump(REPLY_POOLS, f, indent=2)
         
-        # Reinitialize queues
         global CATEGORY_QUEUES
         CATEGORY_QUEUES = {}
         for category, data in REPLY_POOLS.items():
@@ -467,10 +438,8 @@ def augment_dataset():
         return False
 
 async def verify_operator(request: Request):
-    """Verify the operator is authorized"""
     operator_email = request.headers.get("X-Operator-Email")
     
-    # For development environments, allow a bypass with specific header
     if request.headers.get("X-Dev-Override") == "sally-dev-1a5f9e3":
         return "dev@example.com"
     
@@ -479,72 +448,51 @@ async def verify_operator(request: Request):
     
     return operator_email
 
-@app.post("/1A9I6F1O5R1C8O3N1E5145ID", response_model=SallyResponse)
+@app.post("/per", response_model=SallyResponse)
 async def analyze_message(
     request: Request,
     user_input: UserMessage,
     operator: str = Depends(verify_operator)
 ):
-    """Main endpoint to analyze customer messages and generate responses"""
     try:
         message = user_input.message.strip()
         context = user_input.context or {}
         
         if not message:
-            return SallyResponse(
-                matched_category="general",
-                confidence=0.0,
-                replies=["I'm waiting to hear what you'd like to say...", "What's on your mind?"]
-            )
+            return SallyResponse(matched_category="general", confidence=0.0, replies=[
+                "I'm waiting to hear what you'd like to say...", "What's on your mind?"
+            ])
         
-        # Match message to category
         matched_category, matched_trigger, confidence = match_message_to_category(message)
+        response_data = {"matched_category": matched_category, "confidence": round(confidence, 2), "replies": []}
         
-        # Format as response object
-        response_data = {
-            "matched_category": matched_category,
-            "confidence": round(confidence, 2),
-            "replies": []
-        }
-        
-        # Get response pair from appropriate queue
         if matched_category in CATEGORY_QUEUES and CATEGORY_QUEUES[matched_category]:
             queue = CATEGORY_QUEUES[matched_category]
             category_data = REPLY_POOLS[matched_category]
             
             if queue and category_data["responses"] and category_data["questions"]:
                 r_idx, q_idx = queue.popleft()
-                queue.append((r_idx, q_idx))  # Put it back at the end for cycling
-                
-                # Get the response and question
+                queue.append((r_idx, q_idx))
                 response = category_data["responses"][r_idx % len(category_data["responses"])]
                 question = category_data["questions"][q_idx % len(category_data["questions"])]
-                
-                # Add to response data
                 response_data["replies"] = [response, question]
                 
-                # Add a second pair if confidence is high
                 if confidence > 0.8 and len(queue) > 1:
-                    r2_idx, q2_idx = queue[1]  # Get next pair without removing
+                    r2_idx, q2_idx = queue[1]
                     response2 = category_data["responses"][r2_idx % len(category_data["responses"])]
                     question2 = category_data["questions"][q2_idx % len(category_data["questions"])]
                     response_data["replies"].extend([response2, question2])
         
-        # Fallback if no responses were generated
         if not response_data["replies"]:
             response_data["replies"] = [
                 "I'd love to chat more about that...",
                 "What else would you like to know about me?"
             ]
         
-        # Log this interaction
         log_to_dataset(message, response_data, operator, context)
         
-        # Store uncertain messages
         if confidence < 0.6:
             store_uncertain(message, context)
-            
-            # Add a clarifying question for low confidence
             if len(response_data["replies"]) >= 2:
                 response_data["replies"][1] += " Could you tell me more about what you're looking for?"
         
@@ -552,7 +500,6 @@ async def analyze_message(
     
     except Exception as e:
         print(f"Error processing message: {e}")
-        # Return a generic response in case of error
         return SallyResponse(
             matched_category="error",
             confidence=0.0,
@@ -562,7 +509,6 @@ async def analyze_message(
 
 @app.get("/dataset/analytics")
 async def get_analytics(request: Request, operator: str = Depends(verify_operator)):
-    """Get analytics about the conversation dataset"""
     analytics = {
         "total_entries": 0,
         "common_categories": {},
@@ -573,7 +519,7 @@ async def get_analytics(request: Request, operator: str = Depends(verify_operato
     
     if DATASET_PATH.exists():
         try:
-            with open(DATASET_PATH, "r") as f:
+            with gzip.open(DATASET_PATH, "rt") as f:
                 entries = [json.loads(line) for line in f]
             
             analytics["total_entries"] = len(entries)
@@ -588,7 +534,6 @@ async def get_analytics(request: Request, operator: str = Depends(verify_operato
                         "max": round(max(confidences), 2)
                     }
                 
-                # Most recent entries
                 recent = entries[-10:]
                 analytics["recent_queries"] = [
                     {"input": entry["user_input"][:50], "category": entry["matched_category"]}
@@ -601,7 +546,6 @@ async def get_analytics(request: Request, operator: str = Depends(verify_operato
 
 @app.post("/augment")
 async def trigger_augmentation(request: Request, operator: str = Depends(verify_operator)):
-    """Manually trigger dataset augmentation"""
     result = augment_dataset()
     return {
         "status": "Dataset augmented" if result else "Augmentation failed", 
@@ -611,21 +555,16 @@ async def trigger_augmentation(request: Request, operator: str = Depends(verify_
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
     return {"status": "healthy", "version": "8.5", "categories": len(REPLY_POOLS)}
 
-# Schedule regular augmentation
 @app.on_event("startup")
 async def startup_event():
-    """Run initial setup tasks on startup"""
     print("Starting Sally Assistant API Server")
     try:
-        # Initial augmentation
         augment_dataset()
     except Exception as e:
         print(f"Error during startup: {e}")
 
-# Add any missing directories
 for path in [BASE_DIR, DATASET_PATH.parent, UNCERTAIN_PATH.parent]:
     if isinstance(path, Path) and not path.exists():
         path.mkdir(parents=True, exist_ok=True)

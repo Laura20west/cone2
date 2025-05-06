@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import spacy
@@ -11,40 +11,33 @@ from collections import defaultdict, deque
 import nltk
 from nltk.corpus import wordnet as wn
 from typing import Dict, List, Optional
-import gzip
-import orjson  # Faster JSON serialization/deserialization
-from functools import lru_cache
+from collections import Counter
 
 # Initialize NLP
 nlp = spacy.load("en_core_web_md")
-nltk.download('wordnet', quiet=True)
+nltk.download('wordnet')
 
 app = FastAPI()
 
 # Configuration
-DATASET_PATH = Path("conversation_dataset.jsonl.gz")
-UNCERTAIN_PATH = Path("uncertain_responses.jsonl.gz")
-REPLY_POOLS_PATH = Path("reply_pools_augmented.json.gz")
+DATASET_PATH = Path("conversation_dataset.jsonl")
+UNCERTAIN_PATH = Path("uncertain_responses.jsonl")
+REPLY_POOLS_PATH = Path("reply_pools_augmented.json")
 
+# Track used responses and questions
+USED_RESPONSES = defaultdict(set)
+USED_QUESTIONS = defaultdict(set)
 
-# Load or initialize reply pools with compression
-def load_compressed_json(filepath):
-    if filepath.exists():
-        try:
-            with gzip.open(filepath, 'rt', encoding='utf-8') as f:
-                return orjson.loads(f.read())
-        except Exception as e:
-            print(f"Error loading compressed file {filepath}: {e}")
-            return {}
-    return {}
-
-def save_compressed_json(data, filepath):
-    with gzip.open(filepath, 'wt', encoding='utf-8') as f:
-        f.write(orjson.dumps(data).decode('utf-8'))
-
-# Load reply pools
-REPLY_POOLS = load_compressed_json(REPLY_POOLS_PATH)
-if not REPLY_POOLS:
+# Load or initialize reply pools
+if REPLY_POOLS_PATH.exists():
+    with open(REPLY_POOLS_PATH, "r") as f:
+        REPLY_POOLS = json.load(f)
+    # Ensure all categories have required fields
+    for category in REPLY_POOLS.values():
+        category.setdefault("triggers", [])
+        category.setdefault("responses", [])
+        category.setdefault("questions", [])
+else:
     REPLY_POOLS = {
         "general": {
             "triggers": [],
@@ -52,13 +45,6 @@ if not REPLY_POOLS:
             "questions": ["What really gets you going?"]
         }
     }
-    save_compressed_json(REPLY_POOLS, REPLY_POOLS_PATH)
-else:
-    # Ensure all categories have required fields
-    for category in REPLY_POOLS.values():
-        category.setdefault("triggers", [])
-        category.setdefault("responses", [])
-        category.setdefault("questions", [])
 
 # Initialize response queues
 CATEGORY_QUEUES = {}
@@ -70,15 +56,6 @@ for category, data in REPLY_POOLS.items():
     random.shuffle(combinations)
     CATEGORY_QUEUES[category] = deque(combinations)
 
-# Security config - use a set for faster lookups
-AUTHORIZED_OPERATORS = {
-    "cone478", "cone353", "cone229", "cone516", 
-    "cone481", "cone335", "cone424", "cone069", "cone096", 
-    "cone075", "cone136", "cone406", "cone047", "cone461", 
-    "cone423", "cone290", "cone407", "cone468",
-    "cone221", "cone412", "cone413", "admin@company.com"
-}
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -89,7 +66,6 @@ app.add_middleware(
 
 class UserMessage(BaseModel):
     message: str
-    context: Optional[Dict] = None
 
 class SallyResponse(BaseModel):
     matched_word: str
@@ -97,7 +73,7 @@ class SallyResponse(BaseModel):
     confidence: float
     replies: List[str]
 
-def log_to_dataset(user_input: str, response_data: dict, operator: str):
+def log_to_dataset(user_input: str, response_data: dict):
     entry = {
         "id": str(uuid.uuid4()),
         "timestamp": datetime.utcnow().isoformat(),
@@ -105,15 +81,12 @@ def log_to_dataset(user_input: str, response_data: dict, operator: str):
         "matched_category": response_data["matched_category"],
         "response": response_data["replies"][0] if response_data["replies"] else None,
         "question": response_data["replies"][1] if len(response_data["replies"]) > 1 else None,
-        "operator": operator,
         "confidence": response_data["confidence"],
-        # Store minimal embedding information to save space
-        "embedding": [round(x, 4) for x in nlp(user_input).vector.tolist()][:50]  # Truncate and round
+        "embedding": nlp(user_input).vector.tolist()
     }
     
-    # Append to compressed jsonl file
-    with gzip.open(DATASET_PATH, "ab") as f:
-        f.write(orjson.dumps(entry) + b"\n")
+    with open(DATASET_PATH, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 def store_uncertain(user_input: str):
     entry = {
@@ -123,25 +96,15 @@ def store_uncertain(user_input: str):
         "reviewed": False
     }
     
-    with gzip.open(UNCERTAIN_PATH, "ab") as f:
-        f.write(orjson.dumps(entry) + b"\n")
-
-@lru_cache(maxsize=128)
-def get_lemmatized_text(text):
-    """Cache lemmatization results to save processing time"""
-    doc = nlp(text)
-    return " ".join([token.lemma_ for token in doc])
+    with open(UNCERTAIN_PATH, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 def augment_dataset():
-    entries = []
-    if DATASET_PATH.exists():
-        try:
-            with gzip.open(DATASET_PATH, "rt", encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        entries.append(orjson.loads(line))
-        except Exception as e:
-            print(f"Error reading dataset: {e}")
+    if not DATASET_PATH.exists():
+        return
+    
+    with open(DATASET_PATH, "r") as f:
+        entries = [json.loads(line) for line in f]
     
     category_counts = defaultdict(int)
     for entry in entries:
@@ -158,10 +121,10 @@ def augment_dataset():
         new_triggers = []
         
         for trigger in base_triggers:
-            lemmatized = get_lemmatized_text(trigger)
+            doc = nlp(trigger)
+            lemmatized = " ".join([token.lemma_ for token in doc])
             new_triggers.append(lemmatized)
             
-            doc = nlp(trigger)
             for token in doc:
                 if token.pos_ in ["NOUN", "VERB"]:
                     syns = [syn.lemmas()[0].name() for syn in wn.synsets(token.text)]
@@ -170,8 +133,8 @@ def augment_dataset():
         
         REPLY_POOLS[category]["triggers"] = list(set(REPLY_POOLS[category]["triggers"] + new_triggers))
     
-    # Save compressed reply pools
-    save_compressed_json(REPLY_POOLS, REPLY_POOLS_PATH)
+    with open(REPLY_POOLS_PATH, "w") as f:
+        json.dump(REPLY_POOLS, f, indent=2)
     
     # Reinitialize queues after augmentation
     global CATEGORY_QUEUES
@@ -184,40 +147,79 @@ def augment_dataset():
         random.shuffle(combinations)
         CATEGORY_QUEUES[category] = deque(combinations)
 
-async def verify_operator(request: Request):
-    operator_email = request.headers.get("X-Operator-Email", "").lower()
-    if not operator_email or operator_email not in AUTHORIZED_OPERATORS:
-        raise HTTPException(status_code=403, detail="Unauthorized operator")
-    return operator_email
-
-@app.post("/1A9I6F1O5R1C8O3N1E5145ID", response_model=SallyResponse)
-async def analyze_message(
-    request: Request,
-    user_input: UserMessage,
-    operator: str = Depends(verify_operator)
-):
-    message = user_input.message.strip()
-    doc = nlp(message.lower())
-    
+def get_best_match(doc):
     best_match = ("general", None, 0.0)
     
-    # Enhanced matching with fallback
+    # Enhanced matching with multiple strategies
     for category, data in REPLY_POOLS.items():
+        # Strategy 1: Full phrase similarity
         for trigger in data["triggers"]:
             trigger_doc = nlp(trigger)
             similarity = doc.similarity(trigger_doc)
             if similarity > best_match[2]:
                 best_match = (category, trigger, similarity)
-    
-    # Word-based fallback
-    if best_match[2] < 0.7:
+        
+        # Strategy 2: Token-level matching with POS consideration
         for token in doc:
-            for category, data in REPLY_POOLS.items():
-                if token.text in data["triggers"]:
-                    best_match = (category, token.text, 0.8)
-                    break
-            if best_match[2] >= 0.7:
-                break
+            if token.pos_ in ["NOUN", "VERB", "ADJ"]:  # Focus on meaningful words
+                for trigger in data["triggers"]:
+                    if token.lemma_ in trigger.lower():
+                        current_sim = 0.7 + (0.3 * (token.pos_ == "NOUN"))  # Nouns get higher weight
+                        if current_sim > best_match[2]:
+                            best_match = (category, token.text, current_sim)
+    
+    # Strategy 3: WordNet synonym expansion
+    if best_match[2] < 0.7:  # If confidence is low
+        for token in doc:
+            if token.pos_ in ["NOUN", "VERB"]:
+                synsets = wn.synsets(token.text)
+                for syn in synsets:
+                    for lemma in syn.lemmas():
+                        for category, data in REPLY_POOLS.items():
+                            if lemma.name() in data["triggers"]:
+                                current_sim = 0.65  # Slightly lower confidence for synonyms
+                                if current_sim > best_match[2]:
+                                    best_match = (category, lemma.name(), current_sim)
+    
+    return best_match
+
+def get_unique_response_pair(category):
+    category_data = REPLY_POOLS[category]
+    responses = category_data["responses"]
+    questions = category_data["questions"]
+    
+    # Find unused response-question pairs
+    available_responses = [i for i in range(len(responses)) if i not in USED_RESPONSES[category]]
+    available_questions = [i for i in range(len(questions)) if i not in USED_QUESTIONS[category]]
+    
+    if available_responses and available_questions:
+        # Try to find a fresh pair
+        for r_idx in available_responses:
+            for q_idx in available_questions:
+                return (r_idx, q_idx)
+    
+    # If no fresh pairs, reset used sets and try again
+    if not available_responses:
+        USED_RESPONSES[category].clear()
+        available_responses = list(range(len(responses)))
+    if not available_questions:
+        USED_QUESTIONS[category].clear()
+        available_questions = list(range(len(questions)))
+    
+    if available_responses and available_questions:
+        r_idx = random.choice(available_responses)
+        q_idx = random.choice(available_questions)
+        return (r_idx, q_idx)
+    
+    # Fallback if still no pairs found
+    return (0, 0) if responses and questions else (None, None)
+
+@app.post("/1B9I6F1O5R1C8O3N87E5145ID", response_model=SallyResponse)
+async def analyze_message(user_input: UserMessage):
+    message = user_input.message.strip()
+    doc = nlp(message.lower())
+    
+    best_match = get_best_match(doc)
     
     # Prepare response
     response = {
@@ -230,23 +232,13 @@ async def analyze_message(
     # Get non-repeating response pair
     category_data = REPLY_POOLS[best_match[0]]
     if category_data["responses"] and category_data["questions"]:
-        queue = CATEGORY_QUEUES[best_match[0]]
+        r_idx, q_idx = get_unique_response_pair(best_match[0])
         
-        if not queue:
-            # Regenerate combinations if queue is empty
-            combinations = [(r_idx, q_idx) for r_idx in range(len(category_data["responses"]))
-                           for q_idx in range(len(category_data["questions"]))]
-            random.shuffle(combinations)
-            queue = deque(combinations)
-            CATEGORY_QUEUES[best_match[0]] = queue
-
-        if queue:
-            taken = 0
-            while taken < 2 and queue:
-                r_idx, q_idx = queue.popleft()
-                response["replies"].append(category_data["responses"][r_idx])
-                response["replies"].append(category_data["questions"][q_idx])
-                taken += 1
+        if r_idx is not None and q_idx is not None:
+            response["replies"].append(category_data["responses"][r_idx])
+            response["replies"].append(category_data["questions"][q_idx])
+            USED_RESPONSES[best_match[0]].add(r_idx)
+            USED_QUESTIONS[best_match[0]].add(q_idx)
     
     # Fallback if no responses found
     if not response["replies"]:
@@ -256,7 +248,7 @@ async def analyze_message(
         ]
     
     # Log interaction
-    log_to_dataset(message, response, operator)
+    log_to_dataset(message, response)
     
     # Active learning
     if response["confidence"] < 0.6:
@@ -268,34 +260,26 @@ async def analyze_message(
 
 @app.get("/dataset/analytics")
 async def get_analytics():
-    from collections import Counter
-    
     analytics = {
         "total_entries": 0,
         "common_categories": {},
         "confidence_stats": {}
     }
     
-    entries = []
     if DATASET_PATH.exists():
-        try:
-            with gzip.open(DATASET_PATH, "rt", encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        entries.append(orjson.loads(line))
-        except Exception as e:
-            print(f"Error reading dataset for analytics: {e}")
-    
-    if entries:
-        analytics["total_entries"] = len(entries)
-        analytics["common_categories"] = dict(Counter(entry["matched_category"] for entry in entries))
+        with open(DATASET_PATH, "r") as f:
+            entries = [json.loads(line) for line in f]
         
-        confidences = [entry["confidence"] for entry in entries]
-        analytics["confidence_stats"] = {
-            "average": round(sum(confidences)/len(confidences), 2),
-            "min": round(min(confidences), 2),
-            "max": round(max(confidences), 2)
-        }
+        analytics["total_entries"] = len(entries)
+        analytics["common_categories"] = Counter(entry["matched_category"] for entry in entries)
+        
+        if entries:
+            confidences = [entry["confidence"] for entry in entries]
+            analytics["confidence_stats"] = {
+                "average": round(sum(confidences)/len(confidences), 2),
+                "min": round(min(confidences), 2),
+                "max": round(max(confidences), 2)
+            }
     
     return analytics
 

@@ -433,4 +433,100 @@ class DatasetManager:
         return self.data.get(keyword.lower(), [])
 
     def find_similar_responses(self, query, top_n=5):
-        """Find similar
+        """Find similar responses using TF-IDF"""
+        if not self.vectorizer or not query.strip():
+            return None
+
+        try:
+            query_vec = self.vectorizer.transform([query])
+            similarities = cosine_similarity(query_vec, self.tfidf_matrix).flatten()
+            top_indices = np.argpartition(similarities, -top_n)[-top_n:]
+            return [self.all_responses[i] for i in top_indices if similarities[i] > 0.2]
+        except Exception as e:
+            print(f"Similarity search error: {e}")
+            return None
+
+    def get_random_response(self):
+        """Get random response from dataset"""
+        if self.all_responses:
+            return random.choice(self.all_responses)
+        return random.choice(self.get_fallback_data()['general'])
+
+    def get_fallback_data(self):
+        """Basic fallback dataset structure"""
+        return {
+            "general": [
+                {"context": "", "response": "That's interesting. Tell me more about that."},
+                {"context": "", "response": "How does that make you feel?"},
+                {"context": "", "response": "I'd love to hear more about your thoughts on this."},
+                {"context": "", "response": "What else comes to mind when you think about this?"},
+                {"context": "", "response": "Can you elaborate on that point?"}
+            ],
+            "hello": [
+                {"context": "", "response": "Hello there! How are you doing today?"},
+                {"context": "", "response": "Hi! What's on your mind?"}
+            ],
+            "how are you": [
+                {"context": "", "response": "I'm doing well, thanks for asking! How about you?"}
+            ]
+        }
+
+# Initialize components once at startup
+nlp = OptimizedNLP()
+dataset = DatasetManager("cone03.json")
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    """Endpoint to handle chat requests"""
+    try:
+        data = request.get_json()
+        user_input = data.get('message', '').strip()
+        
+        if not user_input:
+            return jsonify({"response": "Please provide a message"}), 400
+        
+        # First check for keyword matches
+        keyword_matches = []
+        for keyword in dataset.data.keys():
+            if keyword.lower() in user_input.lower():
+                keyword_matches.extend(dataset.get_keyword_responses(keyword))
+
+        # If we found keyword matches, select from those
+        if keyword_matches:
+            selected = random.choice(keyword_matches)
+            base_response = selected['response'] if isinstance(selected, dict) else selected
+        else:
+            # Otherwise try semantic similarity
+            similar_responses = dataset.find_similar_responses(user_input)
+            if similar_responses:
+                base_response = random.choice(similar_responses)
+            else:
+                # Fallback to random response
+                base_response = dataset.get_random_response()
+
+        # Enhance the response
+        try:
+            paraphrased = nlp.paraphrase(base_response)
+            question = nlp.generate_question(paraphrased)
+            full_response = f"{paraphrased} {question}"
+        except Exception as e:
+            print(f"Error enhancing response: {e}")
+            full_response = base_response
+
+        return jsonify({"response": full_response})
+
+    except Exception as e:
+        print(f"Error processing request: {e}")
+        return jsonify({"response": "I encountered an error processing your request. Please try again."}), 500
+
+@app.route('/')
+def health_check():
+    """Simple health check endpoint"""
+    return jsonify({
+        "status": "active",
+        "service": "Chatbot API",
+        "dataset_loaded": bool(dataset.all_responses)
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

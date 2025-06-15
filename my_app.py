@@ -196,6 +196,16 @@ QUESTION_PATTERNS = [
     lambda x: f"How do others perceive {x}?",
     lambda x: f"What lessons have you learned from {x}?",
     lambda x: f"What advice would you give about {x}?",
+    lambda x: f"What’s the hardest truth you’ve learned about {x}?",
+lambda x: f"Has {x} ever made you cry?",
+lambda x: f"What scares you the most about {x}?",
+lambda x: f"Who do you talk to when you're overwhelmed by {x}?",
+lambda x: f"Have you ever felt lost because of {x}?",
+lambda x: f"Is there a side of {x} you keep hidden?",
+lambda x: f"What kind of healing has {x} brought you?",
+lambda x: f"What are you still learning about {x}?",
+lambda x: f"What memory involving {x} do you cherish most?",
+lambda x: f"What do you wish someone had told you earlier about {x}?",
 
     # Comparative questions
     lambda x: f"How does {x} compare to your expectations?",
@@ -232,6 +242,17 @@ QUESTION_PATTERNS = [
     lambda x: f"How do you find motivation for {x}?",
     lambda x: f"What brings you joy about {x}?",
     lambda x: f"How do you share {x} with others?",
+    lambda x: f"What kind of relationship are you looking for when it comes to {x}?",
+    lambda x: f"Have you ever been heartbroken over {x}?",
+    lambda x: f"What does love look like to you in the context of {x}?",
+    lambda x: f"How do you show affection through {x}?",
+    lambda x: f"What’s your love language when it comes to {x}?",
+    lambda x: f"What kind of partner do you see yourself being in {x}?",
+    lambda x: f"Would you ever compromise on {x} for someone you love?",
+    lambda x: f"What does commitment mean to you regarding {x}?",
+    lambda x: f"How do you handle conflict when it's about {x}?",
+    lambda x: f"Do you believe in forever when it comes to {x}?",
+
 
     # Practical and actionable
     lambda x: f"What practical steps can you take with {x}?",
@@ -256,6 +277,17 @@ QUESTION_PATTERNS = [
     lambda x: f"What support networks do you have for {x}?",
     lambda x: f"How do you collaborate with others on {x}?",
     lambda x: f"What cultural aspects of {x} interest you?",
+    lambda x: f"Is {x} part of your long-term plans?",
+lambda x: f"What role does ambition play in your relationship with {x}?",
+lambda x: f"How does your lifestyle affect your involvement in {x}?",
+lambda x: f"Would you ever change your job/life because of {x}?",
+lambda x: f"What sacrifices have you made for {x}?",
+lambda x: f"Does {x} bring you stability or chaos?",
+lambda x: f"How do you balance fun and responsibility around {x}?",
+lambda x: f"What motivates you to keep going with {x}?",
+lambda x: f"What would success look like in {x} for you?",
+lambda x: f"What role does discipline play in your pursuit of {x}?",
+
 
     # Reflective and philosophical
     lambda x: f"What does {x} mean to you personally?",
@@ -280,18 +312,30 @@ QUESTION_PATTERNS = [
     lambda x: f"What song would represent {x}?",
     lambda x: f"What adventure would {x} take you on?",
     lambda x: f"How would you innovate {x}?",
+    lambda x: f"What principles guide your decisions about {x}?",
+lambda x: f"Does {x} align with your personal values?",
+lambda x: f"How would you handle it if your partner felt differently about {x}?",
+lambda x: f"What does integrity mean to you in the area of {x}?",
+lambda x: f"Would you change your mind about {x} if given enough reason?",
+lambda x: f"How does {x} reflect who you really are?",
+lambda x: f"Is {x} something you'd teach your kids?",
+lambda x: f"Have you ever taken a stand because of {x}?",
+lambda x: f"Do you see {x} as black and white or more nuanced?",
+lambda x: f"What values do you think are missing in people’s approach to {x}?",
+
 
     # Contextual and situational
-    lambda x: f"In what situations is {x} most relevant?",
-    lambda x: f"How does the context affect your view of {x}?",
-    lambda x: f"What environmental factors influence {x}?",
-    lambda x: f"How do different settings change {x}?",
-    lambda x: f"What timing considerations matter for {x}?",
-    lambda x: f"How does your mood affect your relationship with {x}?",
-    lambda x: f"What seasonal aspects of {x} do you notice?",
-    lambda x: f"How do current events relate to {x}?",
-    lambda x: f"What trends do you see in {x}?",
-    lambda x: f"How does technology impact {x}?",
+  lambda x: f"What’s the most romantic thing you've done involving {x}?",
+lambda x: f"If I were into {x}, would that impress you?",
+lambda x: f"What kind of dates involving {x} turn you on?",
+lambda x: f"Would you do something spontaneous like {x} with me?",
+lambda x: f"How would you seduce someone using {x}?",
+lambda x: f"What’s something naughty or fun you associate with {x}?",
+lambda x: f"What kind of adventure would you take me on involving {x}?",
+lambda x: f"What’s your guilty pleasure related to {x}?",
+lambda x: f"If {x} were a date idea, would you try it with me?",
+lambda x: f"What’s the flirtiest thing someone ever said to you about {x}?",
+
 ]
 
 

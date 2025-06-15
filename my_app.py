@@ -168,7 +168,141 @@ PARAPHRASE_TEMPLATES = [
     lambda x: x.replace("normal", "typical"),
     lambda x: x.replace("special", "unique"),
     lambda x: x.replace("common", "ordinary"),
-    lambda x: x.replace("perfect", "flawless")
+    lambda x: x.replace("perfect", "flawless"),
+
+    # NEW ADDITIONS - 100 more templates below
+
+    # More positive word replacements (10)
+    lambda x: x.replace("awesome", "phenomenal"),
+    lambda x: x.replace("cool", "remarkable"),
+    lambda x: x.replace("sweet", "delightful"),
+    lambda x: x.replace("fine", "splendid"),
+    lambda x: x.replace("super", "extraordinary"),
+    lambda x: x.replace("neat", "impressive"),
+    lambda x: x.replace("solid", "excellent"),
+    lambda x: x.replace("decent", "respectable"),
+    lambda x: x.replace("okay", "acceptable"),
+    lambda x: x.replace("alright", "satisfactory"),
+
+    # More negative word replacements (10)
+    lambda x: x.replace("horrible", "atrocious"),
+    lambda x: x.replace("nasty", "revolting"),
+    lambda x: x.replace("gross", "disgusting"),
+    lambda x: x.replace("lame", "disappointing"),
+    lambda x: x.replace("sucks", "is inadequate"),
+    lambda x: x.replace("crappy", "substandard"),
+    lambda x: x.replace("lousy", "inferior"),
+    lambda x: x.replace("pathetic", "pitiful"),
+    lambda x: x.replace("useless", "worthless"),
+    lambda x: x.replace("pointless", "meaningless"),
+
+    # Time expressions (10)
+    lambda x: x.replace("now", "currently"),
+    lambda x: x.replace("today", "at present"),
+    lambda x: x.replace("yesterday", "the previous day"),
+    lambda x: x.replace("tomorrow", "the following day"),
+    lambda x: x.replace("soon", "in the near future"),
+    lambda x: x.replace("later", "subsequently"),
+    lambda x: x.replace("earlier", "previously"),
+    lambda x: x.replace("recently", "not long ago"),
+    lambda x: x.replace("eventually", "ultimately"),
+    lambda x: x.replace("immediately", "right away"),
+
+    # Professional/formal replacements (10)
+    lambda x: x.replace("help", "assist"),
+    lambda x: x.replace("show", "demonstrate"),
+    lambda x: x.replace("tell", "inform"),
+    lambda x: x.replace("ask", "inquire"),
+    lambda x: x.replace("get", "obtain"),
+    lambda x: x.replace("give", "provide"),
+    lambda x: x.replace("make", "create"),
+    lambda x: x.replace("do", "perform"),
+    lambda x: x.replace("say", "state"),
+    lambda x: x.replace("try", "attempt"),
+
+    # Size and quantity modifiers (10)
+    lambda x: x.replace("huge", "massive"),
+    lambda x: x.replace("tiny", "minuscule"),
+    lambda x: x.replace("small", "compact"),
+    lambda x: x.replace("large", "substantial"),
+    lambda x: x.replace("many", "numerous"),
+    lambda x: x.replace("few", "a handful of"),
+    lambda x: x.replace("lots", "plenty"),
+    lambda x: x.replace("tons", "an abundance of"),
+    lambda x: x.replace("loads", "a great deal of"),
+    lambda x: x.replace("bunch", "a collection of"),
+
+    # Movement and action verbs (10)
+    lambda x: x.replace("go", "proceed"),
+    lambda x: x.replace("come", "arrive"),
+    lambda x: x.replace("run", "sprint"),
+    lambda x: x.replace("walk", "stroll"),
+    lambda x: x.replace("jump", "leap"),
+    lambda x: x.replace("fall", "tumble"),
+    lambda x: x.replace("climb", "ascend"),
+    lambda x: x.replace("throw", "hurl"),
+    lambda x: x.replace("catch", "capture"),
+    lambda x: x.replace("break", "shatter"),
+
+    # Mental state words (10)
+    lambda x: x.replace("think", "contemplate"),
+    lambda x: x.replace("remember", "recall"),
+    lambda x: x.replace("forget", "overlook"),
+    lambda x: x.replace("learn", "acquire knowledge about"),
+    lambda x: x.replace("understand", "comprehend"),
+    lambda x: x.replace("wonder", "ponder"),
+    lambda x: x.replace("imagine", "envision"),
+    lambda x: x.replace("dream", "fantasize"),
+    lambda x: x.replace("focus", "concentrate"),
+    lambda x: x.replace("ignore", "disregard"),
+
+    # More sentence starters (10)
+    lambda x: f"Clearly, {x.lower()}" if not x.startswith(('Clearly', 'I', 'You')) else x,
+    lambda x: f"Obviously, {x.lower()}" if not x.startswith(('Obviously', 'I', 'You')) else x,
+    lambda x: f"Naturally, {x.lower()}" if not x.startswith(('Naturally', 'I', 'You')) else x,
+    lambda x: f"Certainly, {x.lower()}" if not x.startswith(('Certainly', 'I', 'You')) else x,
+    lambda x: f"Indeed, {x.lower()}" if not x.startswith(('Indeed', 'I', 'You')) else x,
+    lambda x: f"Undoubtedly, {x.lower()}" if not x.startswith(('Undoubtedly', 'I', 'You')) else x,
+    lambda x: f"Surprisingly, {x.lower()}" if not x.startswith(('Surprisingly', 'I', 'You')) else x,
+    lambda x: f"Interestingly, {x.lower()}" if not x.startswith(('Interestingly', 'I', 'You')) else x,
+    lambda x: f"Fortunately, {x.lower()}" if not x.startswith(('Fortunately', 'I', 'You')) else x,
+    lambda x: f"Unfortunately, {x.lower()}" if not x.startswith(('Unfortunately', 'I', 'You')) else x,
+
+    # Question transformations (10)
+    lambda x: re.sub(r"What is (.+)?", r"Can you tell me what \1 is?", x),
+    lambda x: re.sub(r"How do (.+)?", r"What's the method for \1?", x),
+    lambda x: re.sub(r"Why (.+)?", r"What's the reason that \1?", x),
+    lambda x: re.sub(r"Where (.+)?", r"What location \1?", x),
+    lambda x: re.sub(r"When (.+)?", r"At what time \1?", x),
+    lambda x: re.sub(r"Who (.+)?", r"Which person \1?", x),
+    lambda x: re.sub(r"Which (.+)?", r"What particular \1?", x),
+    lambda x: re.sub(r"Are you (.+)?", r"Would you say you're \1?", x),
+    lambda x: re.sub(r"Do you (.+)?", r"Is it true that you \1?", x),
+    lambda x: re.sub(r"Can you (.+)?", r"Are you able to \1?", x),
+
+    # Comparative expressions (10)
+    lambda x: x.replace("better", "superior"),
+    lambda x: x.replace("worse", "inferior"),
+    lambda x: x.replace("best", "optimal"),
+    lambda x: x.replace("worst", "most inadequate"),
+    lambda x: x.replace("more", "additional"),
+    lambda x: x.replace("less", "reduced"),
+    lambda x: x.replace("most", "the majority of"),
+    lambda x: x.replace("least", "minimal"),
+    lambda x: x.replace("same", "identical"),
+    lambda x: x.replace("different", "distinct"),
+
+    # Casual to formal transformations (10)
+    lambda x: x.replace("stuff", "items"),
+    lambda x: x.replace("things", "matters"),
+    lambda x: x.replace("guy", "individual"),
+    lambda x: x.replace("girl", "young woman"),
+    lambda x: x.replace("kid", "child"),
+    lambda x: x.replace("folks", "people"),
+    lambda x: x.replace("place", "location"),
+    lambda x: x.replace("way", "method"),
+    lambda x: x.replace("kind of", "somewhat"),
+    lambda x: x.replace("sort of", "rather"),
 ]
 
 # Comprehensive question generation patterns (100 variations)

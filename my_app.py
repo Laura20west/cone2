@@ -199,9 +199,8 @@ class BlueMessageManager:
         # First try with the main messages
         match = self._get_match_from_messages(user_input, self.all_blue_messages)
         
-        # If no good match found, try with fallback messages (if they weren't already included)
-        if (not match or 
-            (match and not self._has_keyword_match(user_input, match)) and self.fallback_messages:
+        # If no good match found or match doesn't have keyword, try with fallback messages
+        if (not match or (match and not self._has_keyword_match(user_input, match))) and self.fallback_messages:
             fallback_match = self._get_match_from_messages(user_input, self.fallback_messages)
             if fallback_match and self._has_keyword_match(user_input, fallback_match):
                 return fallback_match

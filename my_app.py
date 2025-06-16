@@ -93,22 +93,15 @@ class BlueMessageManager:
             response = requests.get(self.api_url)
             response.raise_for_status()
             
-            # Handle potential string responses
-            raw_data = response.text
-            if isinstance(raw_data, str):
-                try:
-                    messages = json.loads(raw_data)
-                except json.JSONDecodeError:
-                    print("API returned invalid JSON string")
-                    messages = None
-            else:
-                messages = response.json()
-
-            # Validate message format
-            if not messages or not isinstance(messages, list):
-                print(f"Invalid API response format: {type(messages)}")
-                raise ValueError("API response is not a list")
-
+            # Parse JSON response
+            data = response.json()
+            
+            # Extract messages list from response
+            messages = data.get('messages', [])
+            if not isinstance(messages, list):
+                print(f"Invalid messages format: {type(messages)}")
+                raise ValueError("'messages' is not a list")
+            
             for msg in messages:
                 # Skip non-dictionary items
                 if not isinstance(msg, dict):

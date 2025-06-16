@@ -13,7 +13,7 @@ CATEGORY_KEYWORDS = {
             "bondage", "threesome", "dick", "orgasm", "fucking", "nude", "naked",
             "blowjob", "handjob", "anal", "fetish", "kink", "sexy", "erotic", "masturbation"],
     "cars": ["car", "vehicle", "drive", "driving", "engine", "tire", "race", "speed",
-             "motor", "wheel", "road", "highway", "license", "driver", "automobile"],
+             "motor", "wheel", "road", "highway", "license", "driver", "automobile", "toy"],
     "age": ["age", "old", "young", "birthday", "years", "aged", "elderly", "youth",
             "minor", "teen", "teenager", "adult", "senior", "centenarian"],
     "hobbies": ["toy", "fun", "hobbies", "game", "play", "playing", "collect",
@@ -51,7 +51,7 @@ PARAPHRASE_TEMPLATES = [
     lambda x: x.replace("use", "utilize"),
     lambda x: x.replace("experienced", "encountered"),
     lambda x: x.replace("lady", "woman"),
-    lambda x: x.replace("toy", "plaything")
+    lambda x: x.replace("toy", "sexy assistant")
 ]
 
 class ContextValidator:
@@ -96,20 +96,21 @@ class BlueMessageManager:
             # Parse JSON response
             data = response.json()
             
-            # Extract messages list from response
-            messages = data.get('messages', [])
-            if not isinstance(messages, list):
-                print(f"Invalid messages format: {type(messages)}")
-                raise ValueError("'messages' is not a list")
+            # Ensure data is a list
+            if not isinstance(data, list):
+                print(f"Invalid response format: {type(data)}")
+                raise ValueError("Response is not a list")
             
-            for msg in messages:
+            for msg in data:
                 # Skip non-dictionary items
                 if not isinstance(msg, dict):
                     print(f"Skipping non-dict message: {msg}")
                     continue
                     
                 # Process valid blue messages
-                if msg.get('bubble_color') == 'blue' and msg.get('content'):
+                if (msg.get('bubble_color') == 'blue' and 
+                    msg.get('is_user') is False and 
+                    msg.get('content')):
                     content = msg['content']
                     self.all_blue_messages.append(content)
                     self.categorize_message(content)
@@ -120,7 +121,7 @@ class BlueMessageManager:
             print(f"Error loading messages: {e}")
             # Use fallback messages
             fallback_messages = [
-                "Will I be the first lady that you will use a toy on, or have you experienced that before?",
+                "Can you just tell me if you're not into me and get it over with??",
                 "What kind of playthings do you enjoy exploring with new partners?",
                 "Have you introduced toys in your previous intimate experiences?"
             ]
@@ -137,6 +138,9 @@ class BlueMessageManager:
     
     def get_context_match(self, user_input):
         """Find best matching blue message for user input"""
+        if not self.all_blue_messages:
+            return "I'm not sure how to respond to that."
+            
         # First, try category-based matching
         user_input_lower = user_input.lower()
         matched_categories = []

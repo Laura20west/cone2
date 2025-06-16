@@ -161,8 +161,8 @@ class BlueMessageManager:
             
             print(f"Loaded {len(self.all_blue_messages)} blue messages from API")
             
-            # If we have less than 20 messages, add fallback messages
-            if len(self.all_blue_messages) < 20 and self.fallback_messages:
+            # If we have less than 50 messages, add fallback messages
+            if len(self.all_blue_messages) < 50 and self.fallback_messages:
                 print(f"Adding {len(self.fallback_messages)} fallback messages (total API messages: {len(self.all_blue_messages)})")
                 for msg in self.fallback_messages:
                     self.all_blue_messages.append(msg)

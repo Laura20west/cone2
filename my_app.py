@@ -80,7 +80,7 @@ class ContextValidator:
         return match_score > 0.3, match_score
 
 class BlueMessageManager:
-    """Manages blue messages with keyword categorization"""
+    """Manages blue messages with robust JSON handling"""
     def __init__(self, api_url="https://cone3.onrender.com/get_messages"):
         self.api_url = api_url
         self.blue_messages = defaultdict(list)
@@ -88,22 +88,44 @@ class BlueMessageManager:
         self.load_messages()
     
     def load_messages(self):
-        """Fetch and categorize blue messages"""
+        """Fetch and categorize blue messages with robust JSON parsing"""
         try:
             response = requests.get(self.api_url)
             response.raise_for_status()
-            messages = response.json()
             
+            # Handle potential string responses
+            raw_data = response.text
+            if isinstance(raw_data, str):
+                try:
+                    messages = json.loads(raw_data)
+                except json.JSONDecodeError:
+                    print("API returned invalid JSON string")
+                    messages = None
+            else:
+                messages = response.json()
+
+            # Validate message format
+            if not messages or not isinstance(messages, list):
+                print(f"Invalid API response format: {type(messages)}")
+                raise ValueError("API response is not a list")
+
             for msg in messages:
+                # Skip non-dictionary items
+                if not isinstance(msg, dict):
+                    print(f"Skipping non-dict message: {msg}")
+                    continue
+                    
+                # Process valid blue messages
                 if msg.get('bubble_color') == 'blue' and msg.get('content'):
                     content = msg['content']
                     self.all_blue_messages.append(content)
                     self.categorize_message(content)
             
             print(f"Loaded {len(self.all_blue_messages)} blue messages")
+            
         except Exception as e:
             print(f"Error loading messages: {e}")
-            # Fallback messages
+            # Use fallback messages
             fallback_messages = [
                 "Will I be the first lady that you will use a toy on, or have you experienced that before?",
                 "What kind of playthings do you enjoy exploring with new partners?",

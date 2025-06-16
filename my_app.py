@@ -12,6 +12,8 @@ CATEGORY_KEYWORDS = {
     "sex": ["fuck", "cock", "boobs", "pussy", "horny", "sex", "suck", "spank",
             "bondage", "threesome", "dick", "orgasm", "fucking", "nude", "naked",
             "blowjob", "handjob", "anal", "fetish", "kink", "sexy", "erotic", "masturbation"],
+    "care": ["tease", "care", "day", "busy", "tired", "exhausted", "bed", "sleep",
+            "rest"],
     "cars": ["car", "vehicle", "drive", "driving", "engine", "tire", "race", "speed",
              "motor", "wheel", "road", "highway", "license", "driver", "automobile"],
     "age": ["age", "old", "young", "birthday", "years", "aged", "elderly", "youth",
@@ -51,7 +53,7 @@ PARAPHRASE_TEMPLATES = [
     lambda x: x.replace("use", "utilize"),
     lambda x: x.replace("experienced", "encountered"),
     lambda x: x.replace("lady", "woman"),
-    lambda x: x.replace("toy", "plaything")
+    lambda x: x.replace("toy", "sexy assistant")
 ]
 
 class ContextValidator:

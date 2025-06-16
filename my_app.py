@@ -2,6 +2,7 @@ import json
 import random
 import re
 import requests
+import os
 from flask import Flask, request, jsonify
 from collections import defaultdict
 
@@ -53,7 +54,31 @@ PARAPHRASE_TEMPLATES = [
     lambda x: x.replace("use", "utilize"),
     lambda x: x.replace("experienced", "encountered"),
     lambda x: x.replace("lady", "woman"),
-    lambda x: x.replace("toy", "sexy assistant")
+    lambda x: x.replace("toy", "plaything"),
+    lambda x: x.replace("bad", "terrible"),
+    lambda x: x.replace("big", "enormous"),
+    lambda x: x.replace("small", "tiny"),
+    lambda x: x.replace("fast", "rapid"),
+    lambda x: x.replace("slow", "gradual"),
+    lambda x: x.replace("easy", "simple"),
+    lambda x: x.replace("hard", "difficult"),
+    lambda x: x.replace("old", "ancient"),
+    lambda x: x.replace("new", "fresh"),
+    lambda x: x.replace("important", "crucial"),
+    lambda x: x.replace("smart", "intelligent"),
+    lambda x: x.replace("pretty", "beautiful"),
+    lambda x: x.replace("ugly", "unattractive"),
+    lambda x: x.replace("funny", "hilarious"),
+    lambda x: x.replace("sad", "melancholy"),
+    lambda x: x.replace("angry", "furious"),
+    lambda x: x.replace("tired", "exhausted"),
+    lambda x: x.replace("hungry", "starving"),
+    lambda x: x.replace("cold", "freezing"),
+    lambda x: x.replace("hot", "scorching"),
+    lambda x: x.replace("right", "correct"),
+    lambda x: x.replace("wrong", "incorrect"),
+    lambda x: x.replace("sure", "certain"),
+    lambda x: x.replace("maybe", "perhaps")
 ]
 
 class ContextValidator:
@@ -82,12 +107,30 @@ class ContextValidator:
         return match_score > 0.3, match_score
 
 class BlueMessageManager:
-    """Manages blue messages with robust JSON handling"""
+    """Manages blue messages with robust JSON handling and fallback to cone03.json"""
     def __init__(self, api_url="https://cone3.onrender.com/get_messages"):
         self.api_url = api_url
         self.blue_messages = defaultdict(list)
         self.all_blue_messages = []
+        self.fallback_messages = []
+        self.load_fallback_messages()
         self.load_messages()
+    
+    def load_fallback_messages(self):
+        """Load messages from cone03.json fallback file"""
+        try:
+            if os.path.exists("cone03.json"):
+                with open("cone03.json", "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        self.fallback_messages = [msg["content"] for msg in data if isinstance(msg, dict) and "content" in msg]
+                        print(f"Loaded {len(self.fallback_messages)} fallback messages from cone03.json")
+                    else:
+                        print("cone03.json does not contain a list")
+            else:
+                print("cone03.json not found")
+        except Exception as e:
+            print(f"Error loading fallback messages: {e}")
     
     def load_messages(self):
         """Fetch and categorize blue messages with robust JSON parsing"""
@@ -116,19 +159,33 @@ class BlueMessageManager:
                     self.all_blue_messages.append(content)
                     self.categorize_message(content)
             
-            print(f"Loaded {len(self.all_blue_messages)} blue messages")
+            print(f"Loaded {len(self.all_blue_messages)} blue messages from API")
+            
+            # If we have less than 20 messages, add fallback messages
+            if len(self.all_blue_messages) < 20 and self.fallback_messages:
+                print(f"Adding {len(self.fallback_messages)} fallback messages (total API messages: {len(self.all_blue_messages)})")
+                for msg in self.fallback_messages:
+                    self.all_blue_messages.append(msg)
+                    self.categorize_message(msg)
             
         except Exception as e:
-            print(f"Error loading messages: {e}")
-            # Use fallback messages
-            fallback_messages = [
-                "Will I be the first lady that you will use a toy on, or have you experienced that before?",
-                "What kind of playthings do you enjoy exploring with new partners?",
-                "Have you introduced toys in your previous intimate experiences?"
-            ]
-            for msg in fallback_messages:
-                self.all_blue_messages.append(msg)
-                self.categorize_message(msg)
+            print(f"Error loading API messages: {e}")
+            # Use fallback messages if API fails
+            if self.fallback_messages:
+                print(f"Using {len(self.fallback_messages)} fallback messages due to API error")
+                for msg in self.fallback_messages:
+                    self.all_blue_messages.append(msg)
+                    self.categorize_message(msg)
+            else:
+                # Ultimate fallback if everything fails
+                ultimate_fallback = [
+                    "Will I be the first lady that you will use a toy on, or have you experienced that before?",
+                    "What kind of playthings do you enjoy exploring with new partners?",
+                    "Have you introduced toys in your previous intimate experiences?"
+                ]
+                for msg in ultimate_fallback:
+                    self.all_blue_messages.append(msg)
+                    self.categorize_message(msg)
     
     def categorize_message(self, content):
         """Categorize message based on keywords"""
@@ -138,7 +195,21 @@ class BlueMessageManager:
                 self.blue_messages[category].append(content)
     
     def get_context_match(self, user_input):
-        """Find best matching blue message for user input"""
+        """Find best matching blue message for user input with fallback to cone03.json"""
+        # First try with the main messages
+        match = self._get_match_from_messages(user_input, self.all_blue_messages)
+        
+        # If no good match found, try with fallback messages (if they weren't already included)
+        if (not match or 
+            (match and not self._has_keyword_match(user_input, match)) and self.fallback_messages:
+            fallback_match = self._get_match_from_messages(user_input, self.fallback_messages)
+            if fallback_match and self._has_keyword_match(user_input, fallback_match):
+                return fallback_match
+        
+        return match or random.choice(self.all_blue_messages or self.fallback_messages)
+    
+    def _get_match_from_messages(self, user_input, messages):
+        """Helper method to find best match from a given message list"""
         # First, try category-based matching
         user_input_lower = user_input.lower()
         matched_categories = []
@@ -161,14 +232,16 @@ class BlueMessageManager:
             top_category = category_scores[0][0]
             
             if self.blue_messages[top_category]:
-                return random.choice(self.blue_messages[top_category])
+                category_msgs = [msg for msg in messages if msg in self.blue_messages[top_category]]
+                if category_msgs:
+                    return random.choice(category_msgs)
         
         # Fallback to keyword similarity across all messages
         best_match = None
         best_score = 0
         user_words = set(re.findall(r'\w+', user_input_lower))
         
-        for message in self.all_blue_messages:
+        for message in messages:
             msg_words = set(re.findall(r'\w+', message.lower()))
             overlap = user_words & msg_words
             score = len(overlap) / max(1, len(user_words))
@@ -177,7 +250,19 @@ class BlueMessageManager:
                 best_score = score
                 best_match = message
         
-        return best_match or random.choice(self.all_blue_messages)
+        return best_match
+    
+    def _has_keyword_match(self, user_input, message):
+        """Check if message has at least one keyword match with user input"""
+        user_input_lower = user_input.lower()
+        message_lower = message.lower()
+        
+        # Check against all category keywords
+        for category, keywords in CATEGORY_KEYWORDS.items():
+            if any(keyword in user_input_lower and keyword in message_lower for keyword in keywords):
+                return True
+        
+        return False
 
 class Paraphraser:
     """Handles message paraphrasing"""
@@ -241,7 +326,8 @@ def get_blue_messages():
     return jsonify({
         "count": len(message_manager.all_blue_messages),
         "messages": message_manager.all_blue_messages,
-        "categorized": {k: len(v) for k, v in message_manager.blue_messages.items()}
+        "categorized": {k: len(v) for k, v in message_manager.blue_messages.items()},
+        "fallback_messages_available": len(message_manager.fallback_messages)
     })
 
 @app.route('/')
@@ -249,6 +335,7 @@ def health_check():
     return jsonify({
         "status": "active",
         "blue_messages_loaded": len(message_manager.all_blue_messages),
+        "fallback_messages_available": len(message_manager.fallback_messages),
         "categories": list(CATEGORY_KEYWORDS.keys())
     })
 

@@ -289,7 +289,7 @@ message_manager = BlueMessageManager()
 paraphraser = Paraphraser()
 context_validator = ContextValidator()
 
-@app.route('/chat', methods=['POST'])
+@app.route('/sin', methods=['POST'])
 def chat_handler():
     """Main chat endpoint with context validation"""
     try:

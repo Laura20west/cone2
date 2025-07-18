@@ -3,6 +3,7 @@ import random
 import re
 import requests
 import os
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from collections import defaultdict
 
@@ -79,7 +80,6 @@ PARAPHRASE_TEMPLATES = [
     lambda x: x.replace("wrong", "incorrect"),
     lambda x: x.replace("sure", "certain"),
     lambda x: x.replace("maybe", "perhaps"),
-    # New paraphrasing templates
     lambda x: re.sub(r"\b(\w+)ed\b", lambda m: m.group(1) + "d" if random.random() > 0.5 else m.group(0), x),
     lambda x: x + " you know" if random.random() > 0.7 else x,
     lambda x: x.replace("I", "one") if random.random() > 0.6 else x,
@@ -118,23 +118,19 @@ class ContextValidator:
         return match_score > 0.3, match_score
 
 class BlueMessageManager:
-    """Manages blue messages with robust JSON handling"""
+    """Manages blue messages with caching and fallback"""
     def __init__(self, api_url="https://cone3.onrender.com/get_messages"):
         self.api_url = api_url
         self.blue_messages = defaultdict(list)
         self.all_blue_messages = []
         self.fallback_messages = []
-    
-    def reload_messages(self):
-        """Reload messages from API and fallback file"""
-        self.blue_messages = defaultdict(list)
-        self.all_blue_messages = []
-        self.fallback_messages = []
+        self.last_loaded = None
+        self.cache_expiry = timedelta(minutes=5)  # Cache for 5 minutes
         self._load_fallback_messages()
         self._load_api_messages()
-        
+    
     def _load_fallback_messages(self):
-        """Load messages from cone03.json fallback file"""
+        """Load messages from local fallback file"""
         try:
             if os.path.exists("cone03.json"):
                 with open("cone03.json", "r") as f:
@@ -142,49 +138,47 @@ class BlueMessageManager:
                     if isinstance(data, list):
                         self.fallback_messages = [msg["content"] for msg in data if isinstance(msg, dict) and "content" in msg]
                         print(f"Loaded {len(self.fallback_messages)} fallback messages")
-                    else:
-                        print("Fallback JSON does not contain a list")
-            else:
-                print("Fallback file not found")
         except Exception as e:
             print(f"Error loading fallback: {str(e)}")
+            self.fallback_messages = [
+                "What kind of experiences are you curious about?",
+                "How do you feel about trying something new?",
+                "Tell me more about your interests."
+            ]
     
     def _load_api_messages(self):
-        """Fetch messages from API"""
+        """Fetch messages from API with proper error handling"""
         try:
-            response = requests.get(self.api_url, timeout=5)
+            response = requests.get(self.api_url, timeout=10)
             response.raise_for_status()
             data = response.json()
             messages = data.get('messages', [])
             
             if not isinstance(messages, list):
-                print("API response is not a list")
-                messages = []
-                
+                raise ValueError("API response is not a list")
+            
+            self.all_blue_messages = []
+            self.blue_messages = defaultdict(list)
+            
             for msg in messages:
                 if isinstance(msg, dict) and msg.get('bubble_color') == 'blue' and msg.get('content'):
                     content = msg['content']
                     self.all_blue_messages.append(content)
                     self._categorize_message(content)
             
-            print(f"Loaded {len(self.all_blue_messages)} API messages")
-            
-            # Add fallback if needed
-            if len(self.all_blue_messages) < 10 and self.fallback_messages:
-                print("Supplementing with fallback messages")
-                for msg in self.fallback_messages:
-                    if msg not in self.all_blue_messages:  # Avoid duplicates
-                        self.all_blue_messages.append(msg)
-                        self._categorize_message(msg)
+            print(f"Successfully loaded {len(self.all_blue_messages)} messages from API")
+            self.last_loaded = datetime.now()
+            return True
             
         except Exception as e:
-            print(f"API error: {str(e)}")
+            print(f"API load failed: {str(e)}")
             # Use fallback if API fails
             if self.fallback_messages:
-                print("Using fallback messages due to API failure")
+                print("Using fallback messages")
                 self.all_blue_messages = self.fallback_messages.copy()
                 for msg in self.fallback_messages:
                     self._categorize_message(msg)
+            return False
     
     def _categorize_message(self, content):
         """Categorize message based on keywords"""
@@ -193,10 +187,17 @@ class BlueMessageManager:
             if any(keyword in content_lower for keyword in keywords):
                 self.blue_messages[category].append(content)
     
+    def reload_messages_if_needed(self):
+        """Reload messages only if cache expired"""
+        if not self.last_loaded or (datetime.now() - self.last_loaded) > self.cache_expiry:
+            print("Cache expired, reloading messages...")
+            return self._load_api_messages()
+        return False
+    
     def get_context_match(self, user_input):
         """Find best matching blue message for user input"""
         if not self.all_blue_messages:
-            return "How do you feel about exploring new experiences?"
+            return random.choice(self.fallback_messages)
         
         # Try category-based matching first
         user_input_lower = user_input.lower()
@@ -207,7 +208,6 @@ class BlueMessageManager:
                 matched_categories.append(category)
         
         if matched_categories:
-            # Select a random category from matches
             selected_category = random.choice(matched_categories)
             if self.blue_messages[selected_category]:
                 return random.choice(self.blue_messages[selected_category])
@@ -229,22 +229,23 @@ class BlueMessageManager:
         return best_match or random.choice(self.all_blue_messages)
 
 class Paraphraser:
-    """Handles message paraphrasing with enhanced variations"""
+    """Handles message paraphrasing with variation tracking"""
     def __init__(self):
         self.templates = PARAPHRASE_TEMPLATES
-        self.previous_phrases = set()
+        self.recent_phrases = set()
+        self.max_recent = 20
     
     def paraphrase(self, text):
         """Apply multiple paraphrasing transformations"""
         if not text.strip():
             return text
         
-        # Generate multiple variations and select the most different
+        # Generate multiple variations
         variations = []
-        for _ in range(5):
+        for _ in range(3):  # Generate 3 variations
             current = text
-            # Apply random number of transformations (2-5)
-            for _ in range(random.randint(2, 5)):
+            # Apply 2-4 random transformations
+            for _ in range(random.randint(2, 4)):
                 template = random.choice(self.templates)
                 try:
                     transformed = template(current)
@@ -254,23 +255,28 @@ class Paraphraser:
                     continue
             variations.append(current)
         
-        # Select variation that hasn't been used recently
-        for variation in variations:
-            if variation not in self.previous_phrases:
-                self.previous_phrases.add(variation)
-                # Keep only last 20 phrases to manage memory
-                if len(self.previous_phrases) > 20:
-                    self.previous_phrases.pop()
+        # Select the most unique variation not recently used
+        for variation in sorted(variations, key=lambda x: self._uniqueness_score(text, x), reverse=True):
+            if variation not in self.recent_phrases:
+                self._track_phrase(variation)
                 return variation
         
-        # If all variations are recent, return most different from original
-        return max(variations, key=lambda x: self._difference_score(text, x))
+        # If all variations are recent, return the most different one
+        best_variation = max(variations, key=lambda x: self._uniqueness_score(text, x))
+        self._track_phrase(best_variation)
+        return best_variation
     
-    def _difference_score(self, original, variation):
-        """Calculate difference between original and variation"""
+    def _uniqueness_score(self, original, variation):
+        """Calculate how different variation is from original"""
         orig_words = set(re.findall(r'\w+', original.lower()))
         var_words = set(re.findall(r'\w+', variation.lower()))
         return len(var_words - orig_words)
+    
+    def _track_phrase(self, phrase):
+        """Track recent phrases to avoid repetition"""
+        self.recent_phrases.add(phrase)
+        if len(self.recent_phrases) > self.max_recent:
+            self.recent_phrases.pop()
 
 # Initialize components
 message_manager = BlueMessageManager()
@@ -279,10 +285,10 @@ context_validator = ContextValidator()
 
 @app.route('/sinners', methods=['POST'])
 def chat_handler():
-    """Main chat endpoint with reloading and enhanced paraphrasing"""
+    """Main chat endpoint with caching and fallback"""
     try:
-        # Reload messages on every request
-        message_manager.reload_messages()
+        # Only reload messages if cache expired
+        message_manager.reload_messages_if_needed()
         
         data = request.json
         user_input = data.get('message', '').strip()
@@ -304,7 +310,10 @@ def chat_handler():
             "original": blue_message,
             "context_match": is_context_match,
             "match_score": round(match_score, 2),
-            "user_input": user_input
+            "user_input": user_input,
+            "cache_status": "fresh" if message_manager.last_loaded and 
+                            (datetime.now() - message_manager.last_loaded) < message_manager.cache_expiry 
+                            else "reloaded"
         })
         
     except Exception as e:
@@ -315,7 +324,9 @@ def get_blue_messages():
     """Endpoint to view loaded blue messages"""
     return jsonify({
         "count": len(message_manager.all_blue_messages),
-        "categories": {k: len(v) for k, v in message_manager.blue_messages.items()}
+        "categories": {k: len(v) for k, v in message_manager.blue_messages.items()},
+        "last_loaded": message_manager.last_loaded.isoformat() if message_manager.last_loaded else None,
+        "using_fallback": len(message_manager.all_blue_messages) == len(message_manager.fallback_messages)
     })
 
 @app.route('/')
@@ -323,7 +334,9 @@ def health_check():
     return jsonify({
         "status": "active",
         "message": "Sinner's endpoint is ready",
-        "paraphrase_templates": len(PARAPHRASE_TEMPLATES)
+        "paraphrase_templates": len(PARAPHRASE_TEMPLATES),
+        "cached_messages": len(message_manager.all_blue_messages),
+        "cache_expiry_minutes": message_manager.cache_expiry.total_seconds() / 60
     })
 
 if __name__ == '__main__':

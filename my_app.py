@@ -26,7 +26,7 @@ CATEGORY_KEYWORDS = {
                       "affection", "commitment", "proposal", "engagement"]
 }
 
-# Paraphrasing templates
+# Enhanced paraphrasing templates
 PARAPHRASE_TEMPLATES = [
     lambda x: x.replace("good", "excellent"),
     lambda x: x.replace("good", "wonderful"),
@@ -78,7 +78,18 @@ PARAPHRASE_TEMPLATES = [
     lambda x: x.replace("right", "correct"),
     lambda x: x.replace("wrong", "incorrect"),
     lambda x: x.replace("sure", "certain"),
-    lambda x: x.replace("maybe", "perhaps")
+    lambda x: x.replace("maybe", "perhaps"),
+    # New paraphrasing templates
+    lambda x: re.sub(r"\b(\w+)ed\b", lambda m: m.group(1) + "d" if random.random() > 0.5 else m.group(0), x),
+    lambda x: x + " you know" if random.random() > 0.7 else x,
+    lambda x: x.replace("I", "one") if random.random() > 0.6 else x,
+    lambda x: re.sub(r"\bthe\b", "", x) if random.random() > 0.4 else x,
+    lambda x: x.replace("you", "someone") if random.random() > 0.5 else x,
+    lambda x: re.sub(r"\.$", "?", x) if random.random() > 0.3 else x,
+    lambda x: re.sub(r"\b(\w+)ing\b", lambda m: m.group(1) + "in'" if random.random() > 0.4 else m.group(0), x),
+    lambda x: "Well, " + x[0].lower() + x[1:] if not x.startswith("Well") and random.random() > 0.5 else x,
+    lambda x: "Actually, " + x if not x.startswith("Actually") and random.random() > 0.4 else x,
+    lambda x: re.sub(r"\b(\w+)\b", lambda m: m.group(1).upper() if random.random() > 0.8 else m.group(1), x)
 ]
 
 class ContextValidator:
@@ -107,16 +118,22 @@ class ContextValidator:
         return match_score > 0.3, match_score
 
 class BlueMessageManager:
-    """Manages blue messages with robust JSON handling and fallback to cone03.json"""
+    """Manages blue messages with robust JSON handling"""
     def __init__(self, api_url="https://cone3.onrender.com/get_messages"):
         self.api_url = api_url
         self.blue_messages = defaultdict(list)
         self.all_blue_messages = []
         self.fallback_messages = []
-        self.load_fallback_messages()
-        self.load_messages()
     
-    def load_fallback_messages(self):
+    def reload_messages(self):
+        """Reload messages from API and fallback file"""
+        self.blue_messages = defaultdict(list)
+        self.all_blue_messages = []
+        self.fallback_messages = []
+        self._load_fallback_messages()
+        self._load_api_messages()
+        
+    def _load_fallback_messages(self):
         """Load messages from cone03.json fallback file"""
         try:
             if os.path.exists("cone03.json"):
@@ -124,70 +141,52 @@ class BlueMessageManager:
                     data = json.load(f)
                     if isinstance(data, list):
                         self.fallback_messages = [msg["content"] for msg in data if isinstance(msg, dict) and "content" in msg]
-                        print(f"Loaded {len(self.fallback_messages)} fallback messages from cone03.json")
+                        print(f"Loaded {len(self.fallback_messages)} fallback messages")
                     else:
-                        print("cone03.json does not contain a list")
+                        print("Fallback JSON does not contain a list")
             else:
-                print("cone03.json not found")
+                print("Fallback file not found")
         except Exception as e:
-            print(f"Error loading fallback messages: {e}")
+            print(f"Error loading fallback: {str(e)}")
     
-    def load_messages(self):
-        """Fetch and categorize blue messages with robust JSON parsing"""
+    def _load_api_messages(self):
+        """Fetch messages from API"""
         try:
-            response = requests.get(self.api_url)
+            response = requests.get(self.api_url, timeout=5)
             response.raise_for_status()
-            
-            # Parse JSON response
             data = response.json()
-            
-            # Extract messages list from response
             messages = data.get('messages', [])
-            if not isinstance(messages, list):
-                print(f"Invalid messages format: {type(messages)}")
-                raise ValueError("'messages' is not a list")
             
+            if not isinstance(messages, list):
+                print("API response is not a list")
+                messages = []
+                
             for msg in messages:
-                # Skip non-dictionary items
-                if not isinstance(msg, dict):
-                    print(f"Skipping non-dict message: {msg}")
-                    continue
-                    
-                # Process valid blue messages
-                if msg.get('bubble_color') == 'blue' and msg.get('content'):
+                if isinstance(msg, dict) and msg.get('bubble_color') == 'blue' and msg.get('content'):
                     content = msg['content']
                     self.all_blue_messages.append(content)
-                    self.categorize_message(content)
+                    self._categorize_message(content)
             
-            print(f"Loaded {len(self.all_blue_messages)} blue messages from API")
+            print(f"Loaded {len(self.all_blue_messages)} API messages")
             
-            # If we have less than 50 messages, add fallback messages
-            if len(self.all_blue_messages) < 50 and self.fallback_messages:
-                print(f"Adding {len(self.fallback_messages)} fallback messages (total API messages: {len(self.all_blue_messages)})")
+            # Add fallback if needed
+            if len(self.all_blue_messages) < 10 and self.fallback_messages:
+                print("Supplementing with fallback messages")
                 for msg in self.fallback_messages:
-                    self.all_blue_messages.append(msg)
-                    self.categorize_message(msg)
+                    if msg not in self.all_blue_messages:  # Avoid duplicates
+                        self.all_blue_messages.append(msg)
+                        self._categorize_message(msg)
             
         except Exception as e:
-            print(f"Error loading API messages: {e}")
-            # Use fallback messages if API fails
+            print(f"API error: {str(e)}")
+            # Use fallback if API fails
             if self.fallback_messages:
-                print(f"Using {len(self.fallback_messages)} fallback messages due to API error")
+                print("Using fallback messages due to API failure")
+                self.all_blue_messages = self.fallback_messages.copy()
                 for msg in self.fallback_messages:
-                    self.all_blue_messages.append(msg)
-                    self.categorize_message(msg)
-            else:
-                # Ultimate fallback if everything fails
-                ultimate_fallback = [
-                    "Will I be the first lady that you will use a toy on, or have you experienced that before?",
-                    "What kind of playthings do you enjoy exploring with new partners?",
-                    "Have you introduced toys in your previous intimate experiences?"
-                ]
-                for msg in ultimate_fallback:
-                    self.all_blue_messages.append(msg)
-                    self.categorize_message(msg)
+                    self._categorize_message(msg)
     
-    def categorize_message(self, content):
+    def _categorize_message(self, content):
         """Categorize message based on keywords"""
         content_lower = content.lower()
         for category, keywords in CATEGORY_KEYWORDS.items():
@@ -195,21 +194,11 @@ class BlueMessageManager:
                 self.blue_messages[category].append(content)
     
     def get_context_match(self, user_input):
-        """Find best matching blue message for user input with fallback to cone03.json"""
-        # First try with the main messages
-        match = self._get_match_from_messages(user_input, self.all_blue_messages)
+        """Find best matching blue message for user input"""
+        if not self.all_blue_messages:
+            return "How do you feel about exploring new experiences?"
         
-        # If no good match found or match doesn't have keyword, try with fallback messages
-        if (not match or (match and not self._has_keyword_match(user_input, match))) and self.fallback_messages:
-            fallback_match = self._get_match_from_messages(user_input, self.fallback_messages)
-            if fallback_match and self._has_keyword_match(user_input, fallback_match):
-                return fallback_match
-        
-        return match or random.choice(self.all_blue_messages or self.fallback_messages)
-    
-    def _get_match_from_messages(self, user_input, messages):
-        """Helper method to find best match from a given message list"""
-        # First, try category-based matching
+        # Try category-based matching first
         user_input_lower = user_input.lower()
         matched_categories = []
         
@@ -217,72 +206,71 @@ class BlueMessageManager:
             if any(keyword in user_input_lower for keyword in keywords):
                 matched_categories.append(category)
         
-        # If we found matching categories, select from those
         if matched_categories:
-            # Prioritize categories with most keyword matches
-            category_scores = []
-            for category in matched_categories:
-                keywords = CATEGORY_KEYWORDS[category]
-                score = sum(1 for keyword in keywords if keyword in user_input_lower)
-                category_scores.append((category, score))
-            
-            # Sort by score descending
-            category_scores.sort(key=lambda x: x[1], reverse=True)
-            top_category = category_scores[0][0]
-            
-            if self.blue_messages[top_category]:
-                category_msgs = [msg for msg in messages if msg in self.blue_messages[top_category]]
-                if category_msgs:
-                    return random.choice(category_msgs)
+            # Select a random category from matches
+            selected_category = random.choice(matched_categories)
+            if self.blue_messages[selected_category]:
+                return random.choice(self.blue_messages[selected_category])
         
-        # Fallback to keyword similarity across all messages
+        # Fallback to keyword similarity
+        user_words = set(re.findall(r'\w+', user_input_lower))
         best_match = None
         best_score = 0
-        user_words = set(re.findall(r'\w+', user_input_lower))
         
-        for message in messages:
+        for message in self.all_blue_messages:
             msg_words = set(re.findall(r'\w+', message.lower()))
-            overlap = user_words & msg_words
-            score = len(overlap) / max(1, len(user_words))
+            common = user_words & msg_words
+            score = len(common)
             
             if score > best_score:
                 best_score = score
                 best_match = message
         
-        return best_match
-    
-    def _has_keyword_match(self, user_input, message):
-        """Check if message has at least one keyword match with user input"""
-        user_input_lower = user_input.lower()
-        message_lower = message.lower()
-        
-        # Check against all category keywords
-        for category, keywords in CATEGORY_KEYWORDS.items():
-            if any(keyword in user_input_lower and keyword in message_lower for keyword in keywords):
-                return True
-        
-        return False
+        return best_match or random.choice(self.all_blue_messages)
 
 class Paraphraser:
-    """Handles message paraphrasing"""
+    """Handles message paraphrasing with enhanced variations"""
     def __init__(self):
         self.templates = PARAPHRASE_TEMPLATES
+        self.previous_phrases = set()
     
-    def paraphrase(self, text, iterations=3):
-        """Apply paraphrasing transformations"""
+    def paraphrase(self, text):
+        """Apply multiple paraphrasing transformations"""
         if not text.strip():
             return text
         
-        for _ in range(iterations):
-            template = random.choice(self.templates)
-            try:
-                new_text = template(text)
-                if new_text != text:
-                    text = new_text
-            except:
-                continue
+        # Generate multiple variations and select the most different
+        variations = []
+        for _ in range(5):
+            current = text
+            # Apply random number of transformations (2-5)
+            for _ in range(random.randint(2, 5)):
+                template = random.choice(self.templates)
+                try:
+                    transformed = template(current)
+                    if transformed != current:
+                        current = transformed
+                except:
+                    continue
+            variations.append(current)
         
-        return text
+        # Select variation that hasn't been used recently
+        for variation in variations:
+            if variation not in self.previous_phrases:
+                self.previous_phrases.add(variation)
+                # Keep only last 20 phrases to manage memory
+                if len(self.previous_phrases) > 20:
+                    self.previous_phrases.pop()
+                return variation
+        
+        # If all variations are recent, return most different from original
+        return max(variations, key=lambda x: self._difference_score(text, x))
+    
+    def _difference_score(self, original, variation):
+        """Calculate difference between original and variation"""
+        orig_words = set(re.findall(r'\w+', original.lower()))
+        var_words = set(re.findall(r'\w+', variation.lower()))
+        return len(var_words - orig_words)
 
 # Initialize components
 message_manager = BlueMessageManager()
@@ -291,8 +279,11 @@ context_validator = ContextValidator()
 
 @app.route('/sinners', methods=['POST'])
 def chat_handler():
-    """Main chat endpoint with context validation"""
+    """Main chat endpoint with reloading and enhanced paraphrasing"""
     try:
+        # Reload messages on every request
+        message_manager.reload_messages()
+        
         data = request.json
         user_input = data.get('message', '').strip()
         
@@ -310,7 +301,7 @@ def chat_handler():
         
         return jsonify({
             "response": paraphrased,
-            "original_blue_message": blue_message,
+            "original": blue_message,
             "context_match": is_context_match,
             "match_score": round(match_score, 2),
             "user_input": user_input
@@ -324,18 +315,15 @@ def get_blue_messages():
     """Endpoint to view loaded blue messages"""
     return jsonify({
         "count": len(message_manager.all_blue_messages),
-        "messages": message_manager.all_blue_messages,
-        "categorized": {k: len(v) for k, v in message_manager.blue_messages.items()},
-        "fallback_messages_available": len(message_manager.fallback_messages)
+        "categories": {k: len(v) for k, v in message_manager.blue_messages.items()}
     })
 
 @app.route('/')
 def health_check():
     return jsonify({
         "status": "active",
-        "blue_messages_loaded": len(message_manager.all_blue_messages),
-        "fallback_messages_available": len(message_manager.fallback_messages),
-        "categories": list(CATEGORY_KEYWORDS.keys())
+        "message": "Sinner's endpoint is ready",
+        "paraphrase_templates": len(PARAPHRASE_TEMPLATES)
     })
 
 if __name__ == '__main__':

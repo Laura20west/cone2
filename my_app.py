@@ -283,7 +283,7 @@ message_manager = BlueMessageManager()
 paraphraser = Paraphraser()
 context_validator = ContextValidator()
 
-@app.route('/1155', methods=['POST'])
+@app.route('/rumi', methods=['POST'])
 def chat_handler():
     """Main chat endpoint with caching and fallback"""
     try:
@@ -333,7 +333,7 @@ def get_blue_messages():
 def health_check():
     return jsonify({
         "status": "active",
-        "message": "Sinner's endpoint is ready",
+        "message": "rumi's endpoint is ready",
         "paraphrase_templates": len(PARAPHRASE_TEMPLATES),
         "cached_messages": len(message_manager.all_blue_messages),
         "cache_expiry_minutes": message_manager.cache_expiry.total_seconds() / 60

@@ -283,7 +283,7 @@ message_manager = BlueMessageManager()
 paraphraser = Paraphraser()
 context_validator = ContextValidator()
 
-@app.route('/sinners', methods=['POST'])
+@app.route('/1155', methods=['POST'])
 def chat_handler():
     """Main chat endpoint with caching and fallback"""
     try:

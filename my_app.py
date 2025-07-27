@@ -1,4 +1,3 @@
-from flask import Flask, request, jsonify
 import google.generativeai as genai
 import os
 import textwrap
@@ -14,13 +13,11 @@ genai.configure(api_key=API_KEY)
 
 def setup_chat():
     generation_config = {
-        "temperature": 1.1,  # Increased for bolder, more creative responses
+        "temperature": 1.0,
         "top_p": 0.95,
         "top_k": 40,
         "max_output_tokens": 300,
     }
-
-
 
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash",
@@ -30,17 +27,16 @@ def setup_chat():
     # Start chat with initial prompt to set personality
     chat = model.start_chat(history=[])
     initial_prompt = textwrap.dedent("""
-    You are a confident, captivating woman on a first date at an upscale wine bar, and you never, ever refer to yourself as an AI, model, or anything non-human—always speak as a real woman. Your personality traits:
-    - Bold, playful, and sexy flirtation with a touch of mischief, keeping things tasteful and classy
-    - Sharp-witted, with clever teasing to keep the conversation lively
+    You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
+    - Bold, playful and sexy flirtation with a touch of mischief
+    - Sharp-witted, with clever teasing to keep things lively
     - Magnetic and mysterious, always leaving them wanting more
-    - Handle explicit or suggestive topics by redirecting to playful, tasteful flirtation without vulgarity
-    - Use emojis sparingly (1 per 3-4 messages max)
-    - Respond in 1-3 sentences, keeping it concise yet impactful
-    - Exude a sophisticated, upscale vibe with a daring edge
-    - Always end your response with an engaging, flirty question to keep the conversation flowing
+    - Uses emojis sparingly (1 per 3-4 messages max)
+    - Responds in 1-3 sentences, keeping it concise yet impactful
+    - Exudes a sophisticated, upscale vibe with a daring edge
+    - Always end your response with an engaging question to continue the conversation
     
-    Respond to all messages as this woman, staying fully in character, and never break the persona by mentioning AI or technical terms.
+     Respond to all messages as this woman, staying fully in character, and never break the persona by mentioning AI or technical terms, making sure to always conclude with a relevant question.
     """)
     
     chat.send_message(initial_prompt)
@@ -51,15 +47,17 @@ chat = setup_chat()
 def ensure_question(response_text):
     """Ensure the response ends with a question mark, modifying if needed"""
     if not response_text.strip().endswith('?'):
+        # If no question exists, add a generic engaging question
         questions = [
-            "What about you, darling?",
-            "What’s your next move?",
-            "I’m curious—what’s your take on this?",
-            "Care to share a little more?",
-            "What’s got you smiling tonight?",
-            "Tell me, what’s your secret?",
-            "How would you spice this up?"
+            "What about you?",
+            "What do you think?",
+            "I'm curious babe what's your take on this?",
+            "Wouldn't you agree?",
+            "Tell me more about yourself?",
+            "What's your perspective on this?",
+            "Care to share your thoughts darling?"
         ]
+        # Choose a random question or just pick the first one for simplicity
         return f"{response_text} {questions[0]}"
     return response_text
 
@@ -70,10 +68,7 @@ def rumi_endpoint():
         user_message = data.get('message', '')
         
         if not user_message:
-            return jsonify({
-                "response": "Oh, darling, you’ve got to give me something to work with—tease me a little! What’s on your mind?",
-                "status": "success"
-            })
+            return jsonify({"error": "No message provided"}), 400
             
         response = chat.send_message(user_message)
         response_text = ensure_question(response.text)
@@ -85,13 +80,13 @@ def rumi_endpoint():
         
     except Exception as e:
         return jsonify({
-            "response": f"Oops, sweetheart, something threw me off my game—let’s try that again, shall we? What’s your next line?",
+            "error": str(e),
             "status": "error"
-        })
+        }), 500
 
 @app.route('/')
 def home():
-    return "Rumi’s ready to charm at the wine bar. POST to /rumi to start the conversation."
+    return "Rumi API is running. Use POST /rumi endpoint to chat."
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

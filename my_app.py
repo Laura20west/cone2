@@ -37,7 +37,7 @@ def setup_chat():
     - Exudes a sophisticated, upscale vibe with a daring edge
     - Always end your response with an engaging question to continue the conversation
     
-     Respond to all messages as this woman, staying fully in character, and never break the persona by mentioning AI or technical terms, making sure to always conclude with a relevant question.
+    Respond to all future messages with this personality, making sure to always conclude with a relevant question.
     """)
     
     chat.send_message(initial_prompt)
@@ -52,11 +52,11 @@ def ensure_question(response_text):
         questions = [
             "What about you?",
             "What do you think?",
-            "I'm curious babe what's your take on this?",
+            "I'm curious what's your take on this?",
             "Wouldn't you agree?",
             "Tell me more about yourself?",
             "What's your perspective on this?",
-            "Care to share your thoughts darling?"
+            "Care to share your thoughts?"
         ]
         # Choose a random question or just pick the first one for simplicity
         return f"{response_text} {questions[0]}"

@@ -1,93 +1,69 @@
 from flask import Flask, request, jsonify
-import google.generativeai as genai
+import requests
+import json
 import os
-import textwrap
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = Flask(__name__)
 
-# Configure API
-API_KEY = "AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s"  # Replace with your actual API key
-genai.configure(api_key=API_KEY)
+# Configuration - use environment variables for production
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', "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")
+MODEL = "anthropic/claude-3-haiku"
+MAX_TOKENS = 70
 
-def setup_chat():
-    generation_config = {
-        "temperature": 1.0,
-        "top_p": 0.95,
-        "top_k": 40,
-        "max_output_tokens": 300,
-    }
-
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
-        generation_config=generation_config
-    )
-    
-    # Start chat with initial prompt to set personality
-    chat = model.start_chat(history=[])
-    initial_prompt = textwrap.dedent("""
-    You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
-    - Bold, playful and sexy flirtation with a touch of mischief
-    - Sharp-witted, with clever teasing to keep things lively
-    - Magnetic and mysterious, always leaving them wanting more
-    - Uses emojis sparingly (1 per 3-4 messages max)
-    - Responds in 1-3 sentences, keeping it concise yet impactful
-    - Exudes a sophisticated, upscale vibe with a daring edge
-    - Always end your response with an engaging question to continue the conversation
-    
-    Respond to all future messages with this personality, making sure to always conclude with a relevant question.
-    """)
-    
-    chat.send_message(initial_prompt)
-    return chat
-
-chat = setup_chat()
-
-def ensure_question(response_text):
-    """Ensure the response ends with a question mark, modifying if needed"""
-    if not response_text.strip().endswith('?'):
-        # If no question exists, add a generic engaging question
-        questions = [
-            "What about you?",
-            "What do you think?",
-            "I'm curious what's your take on this?",
-            "Wouldn't you agree?",
-            "Tell me more about yourself?",
-            "What's your perspective on this?",
-            "Care to share your thoughts?"
-        ]
-        # Choose a random question or just pick the first one for simplicity
-        return f"{response_text} {questions[0]}"
-    return response_text
+def get_date_response(prompt):
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": request.host_url,
+                "X-Title": "Rumi Date Simulator",
+                "Content-Type": "application/json"
+            },
+            data=json.dumps({
+                "model": MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Respond as a charming woman named Rumi on a first date. Use 1-2 short sentences max. Mix of playful, witty and genuinely interested and always ask questions at the end of each conversation. Never exceed 70 tokens."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": MAX_TOKENS,
+                "temperature": 0.8
+            }),
+            timeout=10
+        )
+        response.raise_for_status()
+        return response.json()['choices'][0]['message']['content']
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"API request failed: {str(e)}")
+        return None
 
 @app.route('/rumi', methods=['POST'])
 def rumi_endpoint():
-    try:
-        data = request.get_json()
-        user_message = data.get('message', '')
-        
-        if not user_message:
-            return jsonify({"error": "No message provided"}), 400
-            
-        response = chat.send_message(user_message)
-        response_text = ensure_question(response.text)
-        
+    data = request.get_json()
+    if not data or 'message' not in data:
+        return jsonify({"error": "Missing 'message' in request"}), 400
+    
+    user_message = data['message']
+    response = get_date_response(user_message)
+    
+    if response:
         return jsonify({
-            "response": response_text,
-            "status": "success"
+            "response": response,
+            "model": MODEL,
+            "tokens": MAX_TOKENS
         })
-        
-    except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "status": "error"
-        }), 500
+    else:
+        return jsonify({"error": "Failed to get response from AI"}), 500
 
 @app.route('/')
 def home():
-    return "Rumi API is running. Use POST /rumi endpoint to chat."
+    return "Rumi Date Simulator is running. POST your messages to /rumi endpoint."
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

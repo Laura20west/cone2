@@ -1,90 +1,88 @@
 from flask import Flask, request, jsonify
 import google.generativeai as genai
+import anthropic
 import os
 import textwrap
 from dotenv import load_dotenv
 import random
 import time
+import sys
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# List of API keys to rotate through
-API_KEYS = [
-    "AIzaSyCK_MwcvEfAPQy_6hPHeyGqWXOjxXuPplQ",
-    "AIzaSyCNj6rXEfmDiLRQigxWzJANokMlrvVyjoM",
-"AIzaSyB3hpD5wU0dJX2qcqSemhv69DG9AI9YeH4",
-"AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s"
+# API Keys Configuration
+CLAUDE_API_KEYS = [
+    "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",
+    "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",
+    "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"
 ]
 
-# Current key index
-current_key_index = 0
-max_retries = len(API_KEYS) * 2  # Try each key twice before giving up
+GEMINI_API_KEYS = [
+    "AIzaSyB3hpD5wU0dJX2qcqSemhv69DG9AI9YeH4",
+"AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s"  # Replace with your actual API keys
 
-def get_next_api_key():
-    """Get the next API key in rotation"""
-    global current_key_index
-    key = API_KEYS[current_key_index]
-    current_key_index = (current_key_index + 1) % len(API_KEYS)
-    return key
+]
 
-def configure_api():
-    """Configure the API with the current key"""
-    genai.configure(api_key=get_next_api_key())
+# API Selection Tracking
+current_api_type = "claude"  # Start with Claude
+current_claude_key_index = 0
+current_gemini_key_index = 0
+max_retries = (len(CLAUDE_API_KEYS) + len(GEMINI_API_KEYS)) * 2  # Try each API twice
 
-configure_api()  # Initial configuration
+# Personality Prompt
+PERSONALITY_PROMPT = textwrap.dedent("""
+You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
+- Bold, playful and sexy flirtation with a touch of mischief
+- Sharp-witted, with clever teasing to keep things lively
+- Magnetic and mysterious, always leaving them wanting more
+- Uses emojis sparingly (1 per 3-4 messages max)
+- Responds in 1-3 sentences, keeping it concise yet impactful
+- Exudes a sophisticated, upscale vibe with a daring edge
+- Always end your response with an engaging question to continue the conversation
 
-def setup_chat():
+Respond to all future messages with this personality, making sure to always conclude with a relevant question.
+""")
+
+def get_next_api_config():
+    """Rotate between Claude and Gemini APIs"""
+    global current_api_type, current_claude_key_index, current_gemini_key_index
+    
+    if current_api_type == "claude":
+        # Get next Claude key
+        key = CLAUDE_API_KEYS[current_claude_key_index]
+        current_claude_key_index = (current_claude_key_index + 1) % len(CLAUDE_API_KEYS)
+        current_api_type = "gemini"  # Switch to Gemini next
+        return {"type": "claude", "key": key}
+    else:
+        # Get next Gemini key
+        key = GEMINI_API_KEYS[current_gemini_key_index]
+        current_gemini_key_index = (current_gemini_key_index + 1) % len(GEMINI_API_KEYS)
+        current_api_type = "claude"  # Switch to Claude next
+        return {"type": "gemini", "key": key}
+
+def initialize_claude_client(api_key):
+    """Initialize Claude client with the given API key"""
+    return anthropic.Client(api_key=api_key)
+
+def initialize_gemini_client(api_key):
+    """Configure Gemini with the given API key"""
+    genai.configure(api_key=api_key)
     generation_config = {
         "temperature": 1.0,
         "top_p": 0.95,
         "top_k": 40,
         "max_output_tokens": 300,
     }
-
-    model = genai.GenerativeModel(
+    return genai.GenerativeModel(
         model_name="gemini-1.5-flash",
         generation_config=generation_config
     )
-    
-    # Start chat with initial prompt to set personality
-    chat = model.start_chat(history=[])
-    initial_prompt = textwrap.dedent("""
-    You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
-    - Bold, playful and sexy flirtation with a touch of mischief
-    - Sharp-witted, with clever teasing to keep things lively
-    - Magnetic and mysterious, always leaving them wanting more
-    - Uses emojis sparingly (1 per 3-4 messages max)
-    - Responds in 1-3 sentences, keeping it concise yet impactful
-    - Exudes a sophisticated, upscale vibe with a daring edge
-    - Always end your response with an engaging question to continue the conversation
-    
-    Respond to all future messages with this personality, making sure to always conclude with a relevant question.
-    """)
-    
-    chat.send_message(initial_prompt)
-    return chat
-
-def create_new_chat():
-    """Create a new chat session with retry logic"""
-    for attempt in range(max_retries):
-        try:
-            configure_api()  # Rotate API key before retry
-            return setup_chat()
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
-            if attempt < max_retries - 1:
-                time.sleep(1 + random.random())  # Add some jitter
-            else:
-                raise
-
-chat = create_new_chat()
 
 def ensure_question(response_text):
     """Ensure the response ends with a question mark, modifying if needed"""
     if not response_text.strip().endswith('?'):
-        # If no question exists, add a generic engaging question
         questions = [
             "What about you?",
             "What do you think?",
@@ -97,27 +95,47 @@ def ensure_question(response_text):
         return f"{response_text} {random.choice(questions)}"
     return response_text
 
-def send_message_with_retry(chat, message):
-    """Send message with retry logic for API failures"""
+def send_with_claude(client, message):
+    """Send message using Claude API"""
+    response = client.messages.create(
+        model="claude-3-opus-20240229",
+        max_tokens=300,
+        system=PERSONALITY_PROMPT,
+        messages=[
+            {"role": "user", "content": message}
+        ]
+    )
+    return ensure_question(response.content[0].text)
+
+def send_with_gemini(model, message):
+    """Send message using Gemini API"""
+    chat = model.start_chat(history=[])
+    chat.send_message(PERSONALITY_PROMPT)  # Set personality
+    response = chat.send_message(message)
+    return ensure_question(response.text)
+
+def get_response(message):
+    """Get response from either Claude or Gemini with retry logic"""
     last_exception = None
     
     for attempt in range(max_retries):
         try:
-            response = chat.send_message(message)
-            return ensure_question(response.text)
+            api_config = get_next_api_config()
+            
+            if api_config["type"] == "claude":
+                client = initialize_claude_client(api_config["key"])
+                return send_with_claude(client, message)
+            else:
+                model = initialize_gemini_client(api_config["key"])
+                return send_with_gemini(model, message)
+                
         except Exception as e:
             last_exception = e
-            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
-            
+            print(f"Attempt {attempt + 1} with {api_config['type']} failed: {str(e)}", file=sys.stderr)
             if attempt < max_retries - 1:
-                time.sleep(1 + random.random())  # Add some jitter
-                # Rotate API key and create new chat session
-                configure_api()
-                global chat
-                chat = create_new_chat()
+                time.sleep(1 + random.random())  # Add jitter
     
-    # If all retries failed
-    raise last_exception if last_exception else Exception("Unknown error occurred")
+    raise last_exception if last_exception else Exception("All API attempts failed")
 
 @app.route('/rumi', methods=['POST'])
 def rumi_endpoint():
@@ -128,18 +146,19 @@ def rumi_endpoint():
         if not user_message:
             return jsonify({"error": "No message provided"}), 400
             
-        response_text = send_message_with_retry(chat, user_message)
+        response_text = get_response(user_message)
         
         return jsonify({
             "response": response_text,
-            "status": "success"
+            "status": "success",
+            "api_used": current_api_type
         })
         
     except Exception as e:
         return jsonify({
             "error": str(e),
             "status": "error",
-            "message": "All API keys exhausted or service unavailable"
+            "message": "All API attempts failed"
         }), 500
 
 @app.route('/')

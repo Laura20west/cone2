@@ -9,7 +9,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # Configure Claude API
-API_KEY = "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"
+API_KEY = "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"
 client = anthropic.Anthropic(api_key=API_KEY)
 
 def setup_chat():

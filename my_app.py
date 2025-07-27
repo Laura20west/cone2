@@ -1,19 +1,56 @@
 from flask import Flask, request, jsonify
-import anthropic
+import google.generativeai as genai
 import os
 import textwrap
 from dotenv import load_dotenv
+import random
+import time
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# Configure Claude API
-API_KEY = "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"
-client = anthropic.Anthropic(api_key=API_KEY)
+# List of API keys to rotate through
+API_KEYS = [
+    "AIzaSyCK_MwcvEfAPQy_6hPHeyGqWXOjxXuPplQ"
+"AIzaSyCNj6rXEfmDiLRQigxWzJANokMlrvVyjoM"
+"AIzaSyB3hpD5wU0dJX2qcqSemhv69DG9AI9YeH4"
+"AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s"
+]
+
+# Current key index
+current_key_index = 0
+max_retries = len(API_KEYS) * 2  # Try each key twice before giving up
+
+def get_next_api_key():
+    """Get the next API key in rotation"""
+    global current_key_index
+    key = API_KEYS[current_key_index]
+    current_key_index = (current_key_index + 1) % len(API_KEYS)
+    return key
+
+def configure_api():
+    """Configure the API with the current key"""
+    genai.configure(api_key=get_next_api_key())
+
+configure_api()  # Initial configuration
 
 def setup_chat():
-    system_prompt = textwrap.dedent("""
+    generation_config = {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 40,
+        "max_output_tokens": 300,
+    }
+
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        generation_config=generation_config
+    )
+    
+    # Start chat with initial prompt to set personality
+    chat = model.start_chat(history=[])
+    initial_prompt = textwrap.dedent("""
     You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
     - Bold, playful and sexy flirtation with a touch of mischief
     - Sharp-witted, with clever teasing to keep things lively
@@ -26,9 +63,23 @@ def setup_chat():
     Respond to all future messages with this personality, making sure to always conclude with a relevant question.
     """)
     
-    return system_prompt
+    chat.send_message(initial_prompt)
+    return chat
 
-system_prompt = setup_chat()
+def create_new_chat():
+    """Create a new chat session with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            configure_api()  # Rotate API key before retry
+            return setup_chat()
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(1 + random.random())  # Add some jitter
+            else:
+                raise
+
+chat = create_new_chat()
 
 def ensure_question(response_text):
     """Ensure the response ends with a question mark, modifying if needed"""
@@ -43,9 +94,30 @@ def ensure_question(response_text):
             "What's your perspective on this?",
             "Care to share your thoughts?"
         ]
-        # Choose a random question or just pick the first one for simplicity
-        return f"{response_text} {questions[0]}"
+        return f"{response_text} {random.choice(questions)}"
     return response_text
+
+def send_message_with_retry(chat, message):
+    """Send message with retry logic for API failures"""
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        try:
+            response = chat.send_message(message)
+            return ensure_question(response.text)
+        except Exception as e:
+            last_exception = e
+            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                time.sleep(1 + random.random())  # Add some jitter
+                # Rotate API key and create new chat session
+                configure_api()
+                global chat
+                chat = create_new_chat()
+    
+    # If all retries failed
+    raise last_exception if last_exception else Exception("Unknown error occurred")
 
 @app.route('/rumi', methods=['POST'])
 def rumi_endpoint():
@@ -56,17 +128,7 @@ def rumi_endpoint():
         if not user_message:
             return jsonify({"error": "No message provided"}), 400
             
-        response = client.messages.create(
-            model="claude-3-opus-20240229",
-            max_tokens=300,
-            temperature=1.0,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": user_message}
-            ]
-        )
-        
-        response_text = ensure_question(response.content[0].text)
+        response_text = send_message_with_retry(chat, user_message)
         
         return jsonify({
             "response": response_text,
@@ -76,7 +138,8 @@ def rumi_endpoint():
     except Exception as e:
         return jsonify({
             "error": str(e),
-            "status": "error"
+            "status": "error",
+            "message": "All API keys exhausted or service unavailable"
         }), 500
 
 @app.route('/')

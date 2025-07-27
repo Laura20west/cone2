@@ -20,7 +20,6 @@ def setup_chat():
         "max_output_tokens": 300,
     }
 
-
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash",
         generation_config=generation_config
@@ -36,14 +35,32 @@ def setup_chat():
     - Uses emojis sparingly (1 per 3-4 messages max)
     - Responds in 1-3 sentences, keeping it concise yet impactful
     - Exudes a sophisticated, upscale vibe with a daring edge
+    - Always end your response with an engaging question to continue the conversation
     
-    Respond to all future messages with this personality.
+    Respond to all future messages with this personality, making sure to always conclude with a relevant question.
     """)
     
     chat.send_message(initial_prompt)
     return chat
 
 chat = setup_chat()
+
+def ensure_question(response_text):
+    """Ensure the response ends with a question mark, modifying if needed"""
+    if not response_text.strip().endswith('?'):
+        # If no question exists, add a generic engaging question
+        questions = [
+            "What about you?",
+            "What do you think?",
+            "I'm curious - what's your take on this?",
+            "Wouldn't you agree?",
+            "Tell me more about yourself?",
+            "What's your perspective on this?",
+            "Care to share your thoughts?"
+        ]
+        # Choose a random question or just pick the first one for simplicity
+        return f"{response_text} {questions[0]}"
+    return response_text
 
 @app.route('/rumi', methods=['POST'])
 def rumi_endpoint():
@@ -55,9 +72,10 @@ def rumi_endpoint():
             return jsonify({"error": "No message provided"}), 400
             
         response = chat.send_message(user_message)
+        response_text = ensure_question(response.text)
         
         return jsonify({
-            "response": response.text,
+            "response": response_text,
             "status": "success"
         })
         

@@ -6,7 +6,7 @@ import os
 app = Flask(__name__)
 
 # Configuration
-OPENROUTER_API_KEY = ('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 ')  # Always use environment variables
+OPENROUTER_API_KEY = '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'  # Will raise error if not set
 MODEL = "anthropic/claude-3-haiku"
 MAX_TOKENS = 70
 
@@ -16,7 +16,7 @@ def get_date_response(prompt):
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer": request.host_url,
+                "HTTP-Referer": "https://your-render-app.onrender.com",  # Update with your actual URL
                 "X-Title": "Rumi Date Simulator",
                 "Content-Type": "application/json"
             },
@@ -38,21 +38,14 @@ def get_date_response(prompt):
             timeout=10
         )
         
-        # Print the full API response for debugging
-        app.logger.info(f"OpenRouter API response: {response.text}")
-        
-        if response.status_code != 200:
-            error_msg = f"API Error {response.status_code}"
-            if response.text:
-                error_data = response.json()
-                error_msg += f": {error_data.get('error', {}).get('message', 'Unknown error')}"
-            app.logger.error(error_msg)
-            return None
-            
+        response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
         
+    except requests.exceptions.HTTPError as err:
+        app.logger.error(f"HTTP Error: {err.response.status_code} - {err.response.text}")
+        return None
     except Exception as e:
-        app.logger.error(f"Request failed: {str(e)}")
+        app.logger.error(f"Error: {str(e)}")
         return None
 
 @app.route('/rumi', methods=['POST'])
@@ -67,25 +60,13 @@ def rumi_endpoint():
     response = get_date_response(data['message'])
     
     if response:
-        return jsonify({
-            "response": response,
-            "model": MODEL,
-            "tokens": MAX_TOKENS
-        })
+        return jsonify({"response": response})
     else:
-        return jsonify({
-            "error": "Failed to get response from AI",
-            "solution": "Check server logs for details",
-            "note": "This might be due to invalid API key or insufficient credits"
-        }), 502
+        return jsonify({"error": "Failed to get response from AI. Check server logs."}), 502
 
 @app.route('/')
 def home():
-    return """
-    <h1>Rumi Date Simulator API</h1>
-    <p>Send POST requests to <code>/rumi</code> with JSON payload:</p>
-    <pre>{"message": "Your question here"}</pre>
-    """
+    return "Rumi Date Simulator is running. POST to /rumi endpoint."
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))  # Matches Render's expected port

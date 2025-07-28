@@ -9,7 +9,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # Configure API
-API_KEY = "AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s"  # Replace with your actual API key
+API_KEY = "AIzaSyCK_MwcvEfAPQy_6hPHeyGqWXOjxXuPplQ"  # Replace with your actual API key
 genai.configure(api_key=API_KEY)
 
 def setup_chat():

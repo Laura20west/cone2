@@ -17,7 +17,12 @@ API_KEYS = [
     "AIzaSyCNj6rXEfmDiLRQigxWzJANokMlrvVyjoM",
     "AIzaSyB3hpD5wU0dJX2qcqSemhv69DG9AI9YeH4",
     "AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s",
-    "AIzaSyAzF6Kib3mbEppLErwOvb9DCNg_CB50TtU"
+    "AIzaSyAzF6Kib3mbEppLErwOvb9DCNg_CB50TtU",
+    "AIzaSyCoJC5ayReDwl77pmxKBMG2SBicLbWQD80",
+    "AIzaSyCe6jMP_I4P6hr0ayK_Sk95i4qS9v4fkho",
+    "AIzaSyCVdzdNbHuAq_v7eC0jFFFCmrnXd7djp20",
+    "AIzaSyD-F3dD992kNqYPVZazuxth1ovxR6sbTdA",
+    "AIzaSyCFBTv-A5xSlo7IaNudQ75CZZSolkeyREo"
 ]
 
 # Thread-safe API key rotation

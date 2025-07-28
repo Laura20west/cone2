@@ -5,52 +5,61 @@ import textwrap
 from dotenv import load_dotenv
 import random
 import time
+import threading
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# List of API keys to rotate through
+# List of API keys
 API_KEYS = [
-    "AIzaSyCK_MwcvEfAPQy_6hPHeyGqWXOjxXuPplQ",  # Replace with your actual API keys
+    "AIzaSyCK_MwcvEfAPQy_6hPHeyGqWXOjxXuPplQ",
     "AIzaSyCNj6rXEfmDiLRQigxWzJANokMlrvVyjoM",
     "AIzaSyB3hpD5wU0dJX2qcqSemhv69DG9AI9YeH4",
     "AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s",
     "AIzaSyAzF6Kib3mbEppLErwOvb9DCNg_CB50TtU"
 ]
 
-# Current key index
+# Thread-safe API key rotation
+key_lock = threading.Lock()
 current_key_index = 0
-max_retries = len(API_KEYS) * 2  # Try each key twice before giving up
 
 def get_next_api_key():
-    """Get the next API key in rotation"""
+    """Get next API key with thread-safe rotation"""
     global current_key_index
-    key = API_KEYS[current_key_index]
-    current_key_index = (current_key_index + 1) % len(API_KEYS)
-    return key
+    with key_lock:
+        key = API_KEYS[current_key_index]
+        current_key_index = (current_key_index + 1) % len(API_KEYS)
+        return key
 
 def configure_api():
-    """Configure the API with the current key"""
+    """Configure API with a random key"""
     genai.configure(api_key=get_next_api_key())
 
-configure_api()  # Initial configuration
+# Initial configuration
+configure_api()
 
-def setup_chat():
+max_retries = len(API_KEYS) * 2  # Try each key twice before giving up
+
+def create_model():
+    """Create a new model instance with configuration"""
     generation_config = {
         "temperature": 1.0,
         "top_p": 0.95,
         "top_k": 40,
         "max_output_tokens": 300,
     }
-
-    model = genai.GenerativeModel(
+    
+    return genai.GenerativeModel(
         model_name="gemini-1.5-flash",
         generation_config=generation_config
     )
-    
-    # Start chat with initial prompt to set personality
+
+def setup_chat():
+    """Create a new chat session with personality"""
+    model = create_model()
     chat = model.start_chat(history=[])
+    
     initial_prompt = textwrap.dedent("""
     You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
     - Bold, playful and sexy flirtation with a touch of mischief
@@ -68,7 +77,7 @@ def setup_chat():
     return chat
 
 def create_new_chat():
-    """Create a new chat session with retry logic"""
+    """Create new chat session with retry logic"""
     for attempt in range(max_retries):
         try:
             configure_api()  # Rotate API key before retry
@@ -76,49 +85,45 @@ def create_new_chat():
         except Exception as e:
             print(f"Attempt {attempt + 1} failed with error: {str(e)}")
             if attempt < max_retries - 1:
-                time.sleep(1 + random.random())  # Add some jitter
+                time.sleep(0.5 + random.random())  # Add jitter
             else:
                 raise
 
-chat = create_new_chat()
-
 def ensure_question(response_text):
-    """Ensure the response ends with a question mark, modifying if needed"""
+    """Ensure response ends with a question"""
     if not response_text.strip().endswith('?'):
-        # If no question exists, add a generic engaging question
         questions = [
             "What about you?",
             "What do you think?",
-            "I'm curious what's your take on this?",
+            "I'm curious what's your take?",
             "Wouldn't you agree?",
             "Tell me more about yourself?",
-            "What's your perspective on this?",
-            "Care to share your thoughts?"
+            "What's your perspective?"
         ]
         return f"{response_text} {random.choice(questions)}"
     return response_text
 
-def send_message_with_retry(chat, message):
-    """Send message with retry logic for API failures"""
+def send_message_with_retry(user_message):
+    """Handle message with retry logic"""
     last_exception = None
+    chat_session = None
     
     for attempt in range(max_retries):
         try:
-            response = chat.send_message(message)
+            if not chat_session:
+                chat_session = create_new_chat()
+                
+            response = chat_session.send_message(user_message)
             return ensure_question(response.text)
         except Exception as e:
             last_exception = e
-            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
             
             if attempt < max_retries - 1:
-                time.sleep(1 + random.random())  # Add some jitter
-                # Rotate API key and create new chat session
-                configure_api()
-                global chat
-                chat = create_new_chat()
-    
-    # If all retries failed
-    raise last_exception if last_exception else Exception("Unknown error occurred")
+                time.sleep(0.5 + random.random())
+                chat_session = None  # Reset session for next try
+            else:
+                raise last_exception
 
 @app.route('/rumi', methods=['POST'])
 def rumi_endpoint():
@@ -129,7 +134,7 @@ def rumi_endpoint():
         if not user_message:
             return jsonify({"error": "No message provided"}), 400
             
-        response_text = send_message_with_retry(chat, user_message)
+        response_text = send_message_with_retry(user_message)
         
         return jsonify({
             "response": response_text,
@@ -140,12 +145,12 @@ def rumi_endpoint():
         return jsonify({
             "error": str(e),
             "status": "error",
-            "message": "All API keys exhausted or service unavailable"
+            "message": "Service unavailable after retries"
         }), 500
 
 @app.route('/')
 def home():
-    return "Rumi API is running. Use POST /rumi endpoint to chat."
+    return "Rumi API is running. Use POST /rumi to chat."
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

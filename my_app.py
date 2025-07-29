@@ -13,16 +13,17 @@ app = Flask(__name__)
 
 # List of API keys
 API_KEYS = [
-    "AIzaSyCK_MwcvEfAPQy_6hPHeyGqWXOjxXuPplQ",
-    "AIzaSyCNj6rXEfmDiLRQigxWzJANokMlrvVyjoM",
-    "AIzaSyB3hpD5wU0dJX2qcqSemhv69DG9AI9YeH4",
-    "AIzaSyAbbWBNk2r-J3IHYplIPx8nmoH-czaoI3s",
-    "AIzaSyAzF6Kib3mbEppLErwOvb9DCNg_CB50TtU",
-    "AIzaSyCoJC5ayReDwl77pmxKBMG2SBicLbWQD80",
-    "AIzaSyCe6jMP_I4P6hr0ayK_Sk95i4qS9v4fkho",
-    "AIzaSyCVdzdNbHuAq_v7eC0jFFFCmrnXd7djp20",
-    "AIzaSyD-F3dD992kNqYPVZazuxth1ovxR6sbTdA",
-    "AIzaSyCFBTv-A5xSlo7IaNudQ75CZZSolkeyREo"
+    "AIzaSyApqkaUDeuSFAoTvRTIdu4IU6AlTJOi4xg",
+    "AIzaSyC4g8bqvjF1pR2RTbVd7UOilLvUZchqruE",
+    "AIzaSyCZSRx3TEG0nHzIUTQ9ncdsAQaqayxvaP0",
+    "AIzaSyALZ9rA8hj7npnP4BBBmoR0UkosMAKK9z8",
+    "AIzaSyCGuknImLyopU7avDYBpQVolB67dzV8QXo",
+    "AIzaSyA1bY323jjHRGMOncf3h3FVHC1Nu4glWQQ",
+    "AIzaSyBOIkqINu3sJgW4SEg0DymqZcFQcf5IpEA",
+    "AIzaSyA6fVM2cWIm61vZGdP16t9pF6l1EUAxnP8",
+    "AIzaSyDEycOhGPiYUdKw0BNcSxefUiNxp1ZlGDs",
+    "AIzaSyCkE3SzIEAz71ENFOpdCuLM_Nf5GOpp4Ws"
+    
 ]
 
 # Thread-safe API key rotation

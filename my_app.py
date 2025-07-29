@@ -1,4 +1,4 @@
- from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify
 import google.generativeai as genai
 import os
 import textwrap

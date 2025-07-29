@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+ from flask import Flask, request, jsonify
 import google.generativeai as genai
 import os
 import textwrap
@@ -17,12 +17,8 @@ API_KEYS = [
     "AIzaSyC4g8bqvjF1pR2RTbVd7UOilLvUZchqruE",
     "AIzaSyCZSRx3TEG0nHzIUTQ9ncdsAQaqayxvaP0",
     "AIzaSyALZ9rA8hj7npnP4BBBmoR0UkosMAKK9z8",
-    "AIzaSyCGuknImLyopU7avDYBpQVolB67dzV8QXo",
-    "AIzaSyA1bY323jjHRGMOncf3h3FVHC1Nu4glWQQ",
-    "AIzaSyBOIkqINu3sJgW4SEg0DymqZcFQcf5IpEA",
-    "AIzaSyA6fVM2cWIm61vZGdP16t9pF6l1EUAxnP8",
-    "AIzaSyDEycOhGPiYUdKw0BNcSxefUiNxp1ZlGDs",
-    "AIzaSyCkE3SzIEAz71ENFOpdCuLM_Nf5GOpp4Ws"    
+    "AIzaSyCGuknImLyopU7avDYBpQVolB67dzV8QXo"
+    
 ]
 
 # Thread-safe API key rotation
@@ -39,68 +35,96 @@ def get_next_api_key():
 
 def configure_api():
     """Configure API with a random key"""
-    genai.configure(
-        api_key=get_next_api_key(),
-        client_options={"timeout": 10}  # Add API timeout
-    )
+    genai.configure(api_key=get_next_api_key())
 
 # Initial configuration
 configure_api()
 
-max_retries = 3  # Reduced from 20 to 3
+max_retries = len(API_KEYS) * 2  # Try each key twice before giving up
 
-generation_config = {
-    "temperature": 1.0,
-    "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 300,
-}
-
-# Pre-defined personality prompt
-PERSONALITY_PROMPT = textwrap.dedent("""
-You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
-- Bold, playful and sexy flirtation with a touch of mischief
-- Sharp-witted, with clever teasing to keep things lively
-- Magnetic and mysterious, always leaving them wanting more
-- Uses emojis sparingly (1 per 3-4 messages max)
-- Responds in 1-3 sentences, keeping it concise yet impactful
-- Exudes a sophisticated, upscale vibe with a daring edge
-- Always end your response with an engaging question to continue the conversation
-""").strip()
-
-def create_chat_session():
-    """Create a new chat session with configuration"""
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
-        generation_config=generation_config,
-        system_instruction=PERSONALITY_PROMPT  # Use system instruction
-    )
-    return model.start_chat(history=[])
-
-def send_message_with_retry(user_message):
-    """Handle message with retry logic"""
-    last_error = None
+def create_model():
+    """Create a new model instance with configuration"""
+    generation_config = {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 40,
+        "max_output_tokens": 300,
+    }
     
+    return genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        generation_config=generation_config
+    )
+
+def setup_chat():
+    """Create a new chat session with personality"""
+    model = create_model()
+    chat = model.start_chat(history=[])
+    
+    initial_prompt = textwrap.dedent("""
+    You're a confident, captivating woman on a first date at an upscale wine bar. Your personality traits:
+    - Bold, playful and sexy flirtation with a touch of mischief
+    - Sharp-witted, with clever teasing to keep things lively
+    - Magnetic and mysterious, always leaving them wanting more
+    - Uses emojis sparingly (1 per 3-4 messages max)
+    - Responds in 1-3 sentences, keeping it concise yet impactful
+    - Exudes a sophisticated, upscale vibe with a daring edge
+    - Always end your response with an engaging question to continue the conversation
+    
+    Respond to all future messages with this personality, making sure to always conclude with a relevant question.
+    """)
+    
+    chat.send_message(initial_prompt)
+    return chat
+
+def create_new_chat():
+    """Create new chat session with retry logic"""
     for attempt in range(max_retries):
         try:
-            configure_api()  # Rotate API key each attempt
-            chat = create_chat_session()
-            response = chat.send_message(user_message)
-            return ensure_question(response.text)
-        
+            configure_api()  # Rotate API key before retry
+            return setup_chat()
         except Exception as e:
-            last_error = e
-            app.logger.error(f"Attempt {attempt+1} failed: {str(e)}")
+            print(f"Attempt {attempt + 1} failed with error: {str(e)}")
             if attempt < max_retries - 1:
-                time.sleep(0.2 + random.random() * 0.3)  # Shorter sleep
-    
-    raise last_error if last_error else Exception("All retries failed")
+                time.sleep(0.5 + random.random())  # Add jitter
+            else:
+                raise
 
 def ensure_question(response_text):
     """Ensure response ends with a question"""
     if not response_text.strip().endswith('?'):
-        return response_text + " What about you?"
+        questions = [
+            "What about you?",
+            "What do you think?",
+            "I'm curious what's your take?",
+            "Wouldn't you agree?",
+            "Tell me more about yourself?",
+            "What's your perspective?"
+        ]
+        return f"{response_text} {random.choice(questions)}"
     return response_text
+
+def send_message_with_retry(user_message):
+    """Handle message with retry logic"""
+    last_exception = None
+    chat_session = None
+    
+    for attempt in range(max_retries):
+        try:
+            if not chat_session:
+                chat_session = create_new_chat()
+                
+            response = chat_session.send_message(user_message)
+            return ensure_question(response.text)
+        except Exception as e:
+            last_exception = e
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                time.sleep(0.5 + random.random())
+                chat_session = None  # Reset session for next try
+            else:
+                raise last_exception
 
 @app.route('/rumi', methods=['POST'])
 def rumi_endpoint():
@@ -123,7 +147,7 @@ def rumi_endpoint():
             "error": str(e),
             "status": "error",
             "message": "Service unavailable after retries"
-        }), 503  # Use 503 for service unavailable
+        }), 500
 
 @app.route('/')
 def home():

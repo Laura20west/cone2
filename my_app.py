@@ -14,7 +14,8 @@ app = Flask(__name__)
 # List of API keys
 API_KEYS = [
     "AIzaSyApqkaUDeuSFAoTvRTIdu4IU6AlTJOi4xg",
-    "AIzaSyC4g8bqvjF1pR2RTbVd7UOilLvUZchqruE",
+    "AIzaSyDj2msim5YJzkDauw0lX5PbcLwp0tdk38c",
+    "AIzaSyDFwfSNQWTmig-7xqz5DUNJhPjmNxQpVI0",
     "AIzaSyCZSRx3TEG0nHzIUTQ9ncdsAQaqayxvaP0"
     
 ]
